@@ -1,0 +1,44 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Tool {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  name      String
+  icon      String
+  route     String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Job {
+  id           Int      @id @default(autoincrement())
+  toolKey      String
+  status       String   @default("pending")
+  input        String?
+  output       String?
+  error        String?
+  bullmqJobId  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model KnowledgeItem {
+  id              Int      @id @default(autoincrement())
+  title           String
+  url             String
+  source          String?
+  contentHtml     String?
+  contentMarkdown String?
+  status          String   @default("draft")
+  capturedAt      DateTime @default(now())
+  jobId           Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
