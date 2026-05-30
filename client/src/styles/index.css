@@ -1,0 +1,26 @@
+@import 'tailwindcss';
+@import './theme.css';
+@custom-variant dark (&:where(.dark, .dark *));
+
+@keyframes float {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@utility animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-background-deep: hsl(var(--background-deep));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+}

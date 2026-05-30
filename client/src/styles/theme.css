@@ -1,0 +1,54 @@
+:root {
+  --background: 0 0% 100%;
+  --background-deep: 0 0% 95%;
+  --foreground: 0 0% 10%;
+  /* ... 所有变量的亮色值 */
+}
+.dark,
+.dark[data-theme='custom'],
+.dark[data-theme='default'] {
+  --background: 222.34deg 10.43% 12.27%;
+  --background-deep: 220deg 13.06% 9%;
+  --foreground: 0 0% 95%;
+  --card: 222.34deg 10.43% 12.27%;
+  --card-foreground: 210 40% 98%;
+  --popover: 0 0% 14.2%;
+  --popover-foreground: 210 40% 98%;
+  --muted: 240 3.7% 15.9%;
+  --muted-foreground: 240 5% 64.9%;
+  --primary-foreground: 0 0% 98%;
+  --destructive: 359.21 68.47% 56.47%;
+  --destructive-foreground: 0 0% 98%;
+  --info: 180, 1.54%, 12.75%;
+  --info-foreground: 220, 4%, 58%;
+  --success: 144 57% 58%;
+  --success-foreground: 0 0% 98%;
+  --warning: 42 84% 61%;
+  --warning-foreground: 0 0% 98%;
+  --secondary: 240 5% 17%;
+  --secondary-foreground: 0 0% 98%;
+  --accent: 216 5% 19%;
+  --accent-dark: 240 0% 22%;
+  --accent-darker: 240 0% 26%;
+  --accent-lighter: 216 5% 12%;
+  --accent-hover: 216 5% 24%;
+  --accent-foreground: 0 0% 98%;
+  --heavy: 216 5% 24%;
+  --heavy-foreground: var(--accent-foreground);
+  --border: 240 3.7% 22%;
+  --input: 0deg 0% 100% / 10%;
+  --input-placeholder: 218deg 11% 65%;
+  --input-background: 0deg 0% 100% / 5%;
+  --ring: 222.2 84% 4.9%;
+  --radius: 0.5rem;
+  --overlay: 0deg 0% 0% / 40%;
+  --overlay-content: 0deg 0% 0% / 40%;
+  --font-size-base: 16px;
+  --sidebar: 222.34deg 10.43% 12.27%;
+  --sidebar-deep: 220deg 13.06% 9%;
+  --menu: var(--sidebar);
+  --header: 222.34deg 10.43% 12.27%;
+  --lightningcss-light: ;
+  --lightningcss-dark: initial;
+  color-scheme: dark;
+}
