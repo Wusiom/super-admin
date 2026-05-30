@@ -3,16 +3,10 @@
   "private": true,
   "scripts": {
     "dev": "concurrently \"pnpm --filter server dev\" \"pnpm --filter client dev\"",
-    "build": "pnpm --filter server build && pnpm --filter client build",
-    "prepare": "husky"
+    "build": "pnpm --filter server build && pnpm --filter client build"
   },
   "devDependencies": {
-    "concurrently": "^9.0.0",
-    "husky": "^9.1.7",
-    "lint-staged": "^17.0.5"
-  },
-  "lint-staged": {
-    "*.ts": ["prettier --write", "eslint --fix"]
+    "concurrently": "^9.0.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
