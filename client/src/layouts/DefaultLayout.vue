@@ -41,6 +41,10 @@ function navigate(toolRoute: string) {
         <el-menu-item index="/jobs" @click="router.push('/jobs')">
           <span>📋 任务中心</span>
         </el-menu-item>
+
+        <el-menu-item index="/settings" @click="router.push('/settings')">
+          <span>⚙️ 设置</span>
+        </el-menu-item>
       </el-menu>
     </aside>
 

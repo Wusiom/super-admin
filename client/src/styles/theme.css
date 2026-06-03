@@ -1,4 +1,5 @@
 :root {
+  --primary: 217 91% 60%;
   --background: 0 0% 100%;
   --background-deep: 0 0% 95%;
   --foreground: 0 0% 10%;
@@ -7,6 +8,7 @@
 .dark,
 .dark[data-theme='custom'],
 .dark[data-theme='default'] {
+  --primary: 212 100% 45%;
   --background: 222.34deg 10.43% 12.27%;
   --background-deep: 220deg 13.06% 9%;
   --foreground: 0 0% 95%;

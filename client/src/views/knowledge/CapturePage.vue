@@ -63,6 +63,25 @@ async function handleCapture() {
 <template>
   <div>
     <h2 class="text-xl font-semibold mb-4">采集知识</h2>
+
+    <!-- 扩展引导 banner -->
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 max-w-2xl">
+      <div class="flex items-start gap-3">
+        <span class="text-xl">💡</span>
+        <div>
+          <p class="font-medium text-blue-800 mb-1">
+            推荐使用 Chrome 扩展一键采集
+          </p>
+          <p class="text-sm text-blue-600">
+            安装 Chrome 扩展后，浏览到目标页面点击扩展按钮即可自动提取 Cookie 和 localStorage，无需手动分析。
+            <router-link to="/settings" class="text-blue-800 underline font-medium">
+              查看安装指南 →
+            </router-link>
+          </p>
+        </div>
+      </div>
+    </div>
+
     <p class="text-gray-500 mb-6">输入网页 URL，系统将自动提取正文内容并转为 Markdown。</p>
 
     <div class="flex gap-3 max-w-2xl mb-4">

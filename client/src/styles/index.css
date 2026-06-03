@@ -19,8 +19,20 @@
 }
 
 @theme inline {
+  --color-primary: hsl(var(--primary));
   --color-background: hsl(var(--background));
   --color-background-deep: hsl(var(--background-deep));
   --color-foreground: hsl(var(--foreground));
   --color-card: hsl(var(--card));
+}
+
+@utility login-background {
+  background: linear-gradient(
+    154deg,
+    rgba(7, 7, 9, 0.082) 30%,
+    hsl(var(--primary) / 20%) 48%,
+    rgba(7, 7, 9, 0.082) 64%
+  );
+  -webkit-filter: blur(100px);
+  filter: blur(100px);
 }

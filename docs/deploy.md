@@ -141,7 +141,74 @@ docker compose logs -f --tail=100 client
 }
 ```
 
-## 7. 故障排查
+## 7. Chrome 扩展部署
+
+### 7.1 扩展加载
+
+1. 打开 Chrome 浏览器，访问 `chrome://extensions/`
+2. 开启右上角 **开发者模式**
+3. 点击 **加载已解压的扩展程序**
+4. 选择项目中的 `extension/` 目录
+
+### 7.2 扩展 ID 固定
+
+扩展 ID 由 `manifest.json` 中的 `"key"` 字段决定。该字段是 PEM 公钥的 base64 编码，从 `extension/extension.pem` 私钥提取。
+
+**⚠️ 重要：** PEM 私钥丢失会导致扩展 ID 变化，需要重新配置：
+- 前端环境变量 `VITE_EXTENSION_ID` 需要更新
+- 已授权的扩展需要重新授权
+- 生产环境的 `externally_connectable.matches` 配置不受影响（基于域名而非 ID）
+
+`extension.pem` 已纳入版本控制，请勿删除或重新生成。
+
+### 7.3 PEM 私钥管理
+
+- **开发环境**：PEM 私钥位于 `extension/extension.pem`，已纳入 Git 版本控制
+- **安全说明**：Chrome 扩展密钥仅用于固定扩展 ID，不涉及服务器密钥或用户数据加密
+- 如需重新生成：
+  ```bash
+  # 生成新的 RSA 密钥对（仅在私钥泄露或丢失时操作）
+  node -e "
+  const crypto = require('crypto');
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+  require('fs').writeFileSync('extension/extension.pem', privateKey);
+  // 手动更新 manifest.json 的 "key" 和 client/.env 的 VITE_EXTENSION_ID
+  "
+  ```
+  重新生成后需要重新加载扩展并重新授权。
+
+### 7.4 生产环境 externally_connectable 配置
+
+生产环境部署时，需要在 `extension/manifest.json` 的 `externally_connectable.matches` 中添加生产域名：
+
+```json
+"externally_connectable": {
+  "matches": [
+    "http://localhost:*/*",
+    "http://127.0.0.1:*/*",
+    "https://your-domain.com/*"
+  ]
+}
+```
+
+修改后需重新加载扩展（`chrome://extensions/` → 点击扩展卡片上的刷新按钮）。
+
+### 7.5 扩展权限说明
+
+| 权限 | 用途 |
+|------|------|
+| `activeTab` | 仅在用户点击扩展时获取当前标签页 URL |
+| `storage` | 存储 API token 和后端 URL 配置 |
+| `cookies` | 读取当前页面的登录 Cookie |
+| `scripting` | 注入 content script 提取 localStorage |
+
+扩展不在 Chrome Web Store 发布，仅通过开发者模式加载。
+
+## 8. 故障排查
 
 | 问题 | 检查方法 |
 |------|---------|
@@ -151,3 +218,4 @@ docker compose logs -f --tail=100 client
 | Redis 连接失败 | `docker compose exec redis redis-cli PING` |
 | Playwright 崩溃 | `docker compose logs server \| grep -i browser` |
 | 内存不足 | Playwright Chromium 需约 500MB，考虑增加 swap：`fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile` |
+| 扩展无法连接 | 检查 `externally_connectable.matches` 是否包含当前前端地址；检查 CORS 配置 |

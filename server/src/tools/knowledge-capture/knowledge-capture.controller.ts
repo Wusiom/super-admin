@@ -9,10 +9,12 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
+  UseGuards,
 } from '@nestjs/common';
 import { IsUrl, IsString, IsOptional } from 'class-validator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BullMqService } from '../../core/bullmq.service';
+import { ApiTokenGuard } from '../../core/auth/api-token.guard';
 
 class CaptureDto {
   @IsUrl({ require_tld: false }, { message: 'Invalid URL format' })
@@ -37,6 +39,7 @@ export class KnowledgeCaptureController {
 
   @Post('capture')
   @HttpCode(HttpStatus.CREATED)
+  @UseGuards(ApiTokenGuard)
   async capture(@Body() dto: CaptureDto) {
     const jobData: Record<string, any> = { url: dto.url };
     if (dto.cookies) {

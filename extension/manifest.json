@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Super Admin 采集助手",
+  "version": "0.1.0",
+  "description": "一键采集当前网页的 Cookie 和 localStorage 到 Super Admin 后台",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuObhE9XbNdsoXNB7bGWPsWx67nvjPyHqXJRueh9Y/rQJ9is8fRBNXwPWgGTplu6OE6Vh7SdFtAq2G1SrzFZIOCGztyN1eRki2lyeYLKwEYyg7ui/KOewIyKVZE/GuzxDRfzh2hBt+pOg2CDyZiXEL7v8JCePzf+4Z1KkArDvzzsSsa2YKj7QeuE9SEsIqfk7jwMJQ9I8RNLTWD14yIjZA2NK56NbebBPXAng7pdlJSI6cjbm4xTottRWA6KqsGvjWxcNQiIdehfICU5kQHGAbsakIQFPP4xq953sb5ulmuPI4C52rXTOYeZhZbOQ3dVhuZqY+QU8uP1ZkaI3T9aT5wIDAQAB",
+  "permissions": ["activeTab", "storage", "cookies", "scripting"],
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:*/*",
+      "http://127.0.0.1:*/*"
+    ]
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Super Admin - 采集当前页"
+  },
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-script.js"]
+    }
+  ],
+}
