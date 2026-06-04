@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Super Admin — Login</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ground:       #08090A;
+    --surface-1:    #0F1014;
+    --surface-2:    #16171C;
+    --surface-3:    #1C1D23;
+    --hairline:     rgba(255,255,255,0.06);
+    --hairline-soft:rgba(255,255,255,0.04);
+    --text-primary: #E6E3DB;
+    --text-secondary:#B0ADA5;
+    --text-muted:   #6E6B65;
+    --accent:       #D4A853;
+    --accent-soft:  rgba(212,168,83,0.15);
+    --danger:       #F87171;
+
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    --font-display: 'Space Grotesk', system-ui, sans-serif;
+    --font-body:    'Inter', system-ui, sans-serif;
+    --font-mono:    'JetBrains Mono', 'Consolas', monospace;
+  }
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+
+  body {
+    background: var(--ground);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  /* Ambient glow behind the card */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(ellipse at center, rgba(212,168,83,0.04) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  /* ============================================
+     Login Card
+     ============================================ */
+  .login-card {
+    width: 380px;
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-lg);
+    padding: 40px 36px 32px;
+    position: relative;
+    z-index: 1;
+    box-shadow: 0 0 0 1px var(--hairline-soft), 0 16px 48px rgba(0,0,0,0.4);
+  }
+
+  /* Subtle top accent line */
+  .login-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 40px;
+    right: 40px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.6;
+  }
+
+  .logo-area {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+
+  .logo-mark {
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 12px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .logo-text {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 20px;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+
+  /* ============================================
+     Form
+     ============================================ */
+  .form-group {
+    margin-bottom: 16px;
+  }
+
+  .form-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+    font-family: var(--font-mono);
+  }
+
+  .form-input {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--surface-1);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+  }
+
+  .form-input::placeholder {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .form-input:hover {
+    border-color: rgba(255,255,255,0.12);
+  }
+
+  .form-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+  }
+
+  .form-input.error {
+    border-color: var(--danger);
+  }
+
+  .form-error {
+    font-size: 11px;
+    color: var(--danger);
+    margin-top: 4px;
+    font-family: var(--font-mono);
+  }
+
+  /* ============================================
+     Button
+     ============================================ */
+  .btn-login {
+    width: 100%;
+    padding: 11px;
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: filter 150ms ease-out, transform 100ms ease-out;
+    letter-spacing: -0.01em;
+    margin-top: 8px;
+  }
+
+  .btn-login:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn-login:active {
+    transform: scale(0.98);
+  }
+
+  /* ============================================
+     Footer
+     ============================================ */
+  .login-footer {
+    text-align: center;
+    margin-top: 20px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  .login-footer a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  /* ============================================
+     Tweaks Panel
+     ============================================ */
+  .tweaks-toggle {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-3);
+    border: 1px solid var(--hairline);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    z-index: 100;
+    transition: all 150ms ease-out;
+  }
+  .tweaks-toggle:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  .tweaks-panel {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    width: 240px;
+    background: var(--surface-3);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-md);
+    padding: 14px;
+    z-index: 99;
+    font-size: 12px;
+    display: none;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+  .tweaks-panel.open { display: block; }
+
+  .tweaks-title {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 10px;
+    color: var(--text-primary);
+  }
+
+  .tweak-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .tweak-label {
+    color: var(--text-secondary);
+    font-size: 10px;
+    width: 100%;
+    margin-bottom: 2px;
+  }
+
+  .color-chip {
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    cursor: pointer;
+    border: 1px solid var(--hairline);
+    transition: border-color 150ms ease-out, transform 150ms ease-out;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .color-chip:hover {
+    border-color: rgba(255,255,255,0.3);
+    transform: scale(1.15);
+  }
+  .color-chip.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+</style>
+</head>
+<body>
+
+<div class="login-card">
+  <div class="logo-area">
+    <div class="logo-mark">S</div>
+    <div class="logo-text">Super Admin</div>
+  </div>
+
+  <form autocomplete="off" onsubmit="return false">
+    <div class="form-group">
+      <label class="form-label" for="username">用户名</label>
+      <input
+        class="form-input"
+        id="username"
+        type="text"
+        placeholder="admin"
+        autocomplete="off"
+      />
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="password">密码</label>
+      <input
+        class="form-input"
+        id="password"
+        type="password"
+        placeholder="········"
+        autocomplete="off"
+      />
+    </div>
+
+    <button class="btn-login" type="submit">登 录</button>
+  </form>
+
+  <div class="login-footer">
+    <span>API Token 认证 · </span><a href="#">获取 Token</a>
+  </div>
+</div>
+
+<!-- Tweaks -->
+<button class="tweaks-toggle" id="tweaksToggle" title="Tweaks">+</button>
+<div class="tweaks-panel" id="tweaksPanel">
+  <div class="tweaks-title">Tweaks</div>
+
+  <div class="tweak-row">
+    <span class="tweak-label">Accent 色</span>
+    <span class="color-chip active" data-color="#D4A853" style="background:#D4A853" title="暖金 — 当前"></span>
+    <span class="color-chip" data-color="#C8A951" style="background:#C8A951" title="香槟金"></span>
+    <span class="color-chip" data-color="#B8934F" style="background:#B8934F" title="暗金"></span>
+    <span class="color-chip" data-color="#5E6AD2" style="background:#5E6AD2" title="紫"></span>
+    <span class="color-chip" data-color="#60A5FA" style="background:#60A5FA" title="蓝"></span>
+  </div>
+
+  <div class="tweak-row">
+    <span class="tweak-label">卡片宽度</span>
+    <input type="range" id="cardWidth" min="320" max="480" value="380" style="accent-color:var(--accent);width:100px">
+  </div>
+</div>
+
+<script>
+  // Tweaks toggle
+  document.getElementById('tweaksToggle').addEventListener('click', () => {
+    document.getElementById('tweaksPanel').classList.toggle('open');
+  });
+
+  // Accent chips
+  document.querySelectorAll('.color-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.color-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      document.documentElement.style.setProperty('--accent', chip.dataset.color);
+    });
+  });
+
+  // Card width
+  document.getElementById('cardWidth').addEventListener('input', (e) => {
+    document.querySelector('.login-card').style.width = e.target.value + 'px';
+  });
+
+  // Enter to "login" — visual feedback only
+  document.getElementById('password').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const btn = document.querySelector('.btn-login');
+      btn.textContent = '验证中…';
+      btn.style.opacity = '0.7';
+      setTimeout(() => {
+        btn.textContent = '登 录';
+        btn.style.opacity = '1';
+      }, 1200);
+    }
+  });
+</script>
+
+</body>
+</html>

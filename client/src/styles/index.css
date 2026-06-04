@@ -27,12 +27,12 @@
 }
 
 @utility login-background {
-  background: linear-gradient(
-    154deg,
-    rgba(7, 7, 9, 0.082) 30%,
-    hsl(var(--primary) / 20%) 48%,
-    rgba(7, 7, 9, 0.082) 64%
+  background: radial-gradient(
+    ellipse at 50% 50%,
+    hsl(var(--primary) / 12%) 0%,
+    rgba(7, 7, 9, 0.02) 60%,
+    transparent 100%
   );
-  -webkit-filter: blur(100px);
-  filter: blur(100px);
+  -webkit-filter: blur(80px);
+  filter: blur(80px);
 }

@@ -1,28 +1,27 @@
 <template>
-  <div class="dark flex min-h-full h-screen">
+  <div class="dark flex min-h-full h-screen bg-[hsl(225,11%,3.5%)]">
     <!-- 左侧品牌区 -->
-    <div class="relative hidden lg:block flex-1">
-      <div class="absolute inset-0 size-full dark:bg-[#070709]">
-        <div class="login-background absolute top-0 left-0 size-full"></div>
-        <div class="mr-20 h-full flex flex-col items-center justify-center">
-          <img src="/peo.svg" alt="peo" class="w-2/5 h-64 animate-float" />
-          <p class="text-2xl font-bold text-white mt-2">工具管理后台系统</p>
-        </div>
+    <div class="relative hidden lg:flex flex-1 items-center justify-center overflow-hidden">
+      <div class="login-background absolute inset-0 size-full"></div>
+      <div class="relative z-10 flex flex-col items-center">
+        <img src="/peo.svg" alt="peo" class="w-48 h-64 animate-float" />
+        <p class="mt-4 text-xl font-semibold tracking-tight text-[hsl(44,16%,88%)] font-[Space_Grotesk]">
+          工具管理后台系统
+        </p>
       </div>
     </div>
 
     <!-- 右侧登录表单 -->
-    <div
-      class="relative flex flex-col items-center justify-center w-2/5 px-6 py-10 lg:flex-initial lg:px-8 dark:bg-background-deep"
-    >
-      <div class="mt-6 w-full sm:mx-auto md:max-w-md">
-        <h2
-          class="mb-3 text-3xl/9 font-bold tracking-tight text-foreground lg:text-4xl"
-        >
-          Welcome 登录
+    <div class="relative flex flex-col items-center justify-center w-full lg:w-[420px] px-8 py-10 bg-[hsl(234,10%,7%)] border-l border-[rgba(255,255,255,0.06)]">
+      <!-- 金色顶部细线 -->
+      <div class="absolute top-0 left-8 right-8 h-px bg-gradient-to-r from-transparent via-[hsl(43,60%,58%)] to-transparent opacity-60"></div>
+
+      <div class="w-full sm:max-w-sm">
+        <h2 class="mb-2 text-2xl font-bold tracking-tight text-[hsl(44,16%,88%)] font-[Space_Grotesk]">
+          登 录
         </h2>
-        <p class="mb-8 text-sm text-muted-foreground">
-          请输入您的账号信息登录系统
+        <p class="mb-8 text-sm text-[hsl(44,7%,67%)]">
+          请输入账号信息登录系统
         </p>
 
         <el-form
@@ -65,7 +64,7 @@
             <el-button
               type="primary"
               size="large"
-              class="w-full"
+              class="w-full font-semibold tracking-wide"
               :loading="loading"
               @click="handleLogin"
             >
@@ -154,10 +153,15 @@ if (rememberedUser) {
 :deep(.el-input__wrapper) {
   background-color: hsl(var(--input-background));
   box-shadow: 0 0 0 1px hsl(var(--border)) inset;
+  transition: box-shadow 0.15s ease-out;
 }
 
 :deep(.el-input__wrapper:hover) {
   box-shadow: 0 0 0 1px hsl(var(--border)) inset;
+}
+
+:deep(.el-input.is-focus .el-input__wrapper) {
+  box-shadow: 0 0 0 1px hsl(var(--primary)) inset, 0 0 0 3px hsl(var(--primary) / 15%);
 }
 
 :deep(.el-input__inner) {
@@ -174,5 +178,15 @@ if (rememberedUser) {
 
 :deep(.el-form-item__label) {
   color: hsl(var(--foreground));
+}
+
+:deep(.el-checkbox__inner) {
+  border-color: hsl(var(--border));
+  background-color: transparent;
+}
+
+:deep(.el-checkbox.is-checked .el-checkbox__inner) {
+  background-color: hsl(var(--primary));
+  border-color: hsl(var(--primary));
 }
 </style>
