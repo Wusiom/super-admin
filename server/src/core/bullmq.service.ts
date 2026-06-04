@@ -35,10 +35,13 @@ export class BullMqService implements OnModuleDestroy {
       async (job: Job) => {
         this.logger.log(`Processing job ${job.id} in ${queueName}`);
 
-        // pending → active
+        // 用 jobRecordId（DB 主键）而非 bullmqJobId，避免竞态条件：
+        // controller 是 create job → addJob → update bullmqJobId，
+        // Worker 可能在 bullmqJobId 写入 DB 之前就开始执行
+        const dbJobId = job.data.jobRecordId;
         await this.prisma.job.updateMany({
-          where: { bullmqJobId: job.id },
-          data: { status: 'active' },
+          where: { id: dbJobId },
+          data: { status: 'running', bullmqJobId: job.id },
         });
 
         try {
@@ -66,7 +69,7 @@ export class BullMqService implements OnModuleDestroy {
     events.on('completed', async ({ jobId, returnvalue }) => {
       this.logger.log(`Job ${jobId} completed`);
       await this.prisma.job.updateMany({
-        where: { bullmqJobId: jobId, status: 'active' },
+        where: { bullmqJobId: jobId, status: 'running' },
         data: {
           status: 'success',
           output: returnvalue ? JSON.stringify(returnvalue) : null,
@@ -77,7 +80,7 @@ export class BullMqService implements OnModuleDestroy {
     events.on('failed', async ({ jobId, failedReason }) => {
       this.logger.warn(`Job ${jobId} failed: ${failedReason}`);
       await this.prisma.job.updateMany({
-        where: { bullmqJobId: jobId, status: 'active' },
+        where: { bullmqJobId: jobId, status: 'running' },
         data: { status: 'failed', error: failedReason },
       });
     });
@@ -109,16 +112,12 @@ export class BullMqService implements OnModuleDestroy {
     if (!queue) throw new Error(`Queue not found: ${queueName}`);
 
     const input = existing.input ? JSON.parse(existing.input) : {};
-    const newJobId = await queue.add('capture', {
+    await queue.add('capture', {
       ...input,
       jobRecordId: existing.id,
     });
 
-    // 回写新的 bullmq job id
-    await this.prisma.job.update({
-      where: { id: existing.id },
-      data: { bullmqJobId: newJobId.id! },
-    });
+    // bullmqJobId 由 Worker 在处理时自动同步，此处无需再写
   }
 
   async onModuleDestroy() {

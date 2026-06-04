@@ -15,6 +15,7 @@ import { IsUrl, IsString, IsOptional } from 'class-validator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BullMqService } from '../../core/bullmq.service';
 import { ApiTokenGuard } from '../../core/auth/api-token.guard';
+import { captureProcessor } from './capture.processor';
 
 class CaptureDto {
   @IsUrl({ require_tld: false }, { message: 'Invalid URL format' })
@@ -57,24 +58,34 @@ export class KnowledgeCaptureController {
       }
     }
 
+    // 创建 DB 记录
     const job = await this.prisma.job.create({
       data: {
         toolKey: 'knowledge-capture',
-        status: 'pending',
+        status: 'running',
         input: JSON.stringify(jobData),
       },
     });
 
-    const bullmqJobId = await this.bullMqService.addJob(
-      'knowledge-capture',
-      'capture',
-      { ...jobData, jobRecordId: job.id },
-    );
+    // 同步执行采集，避免 BullMQ 幽灵 Worker 问题
+    const mockJob = {
+      id: `direct-${job.id}`,
+      data: { ...jobData, jobRecordId: job.id },
+    } as any;
 
-    await this.prisma.job.update({
-      where: { id: job.id },
-      data: { bullmqJobId },
-    });
+    captureProcessor(mockJob)
+      .then(async (result) => {
+        await this.prisma.job.update({
+          where: { id: job.id },
+          data: { status: 'success', output: JSON.stringify(result) },
+        });
+      })
+      .catch(async (err: any) => {
+        await this.prisma.job.update({
+          where: { id: job.id },
+          data: { status: 'failed', error: err.message },
+        });
+      });
 
     return { jobId: job.id };
   }

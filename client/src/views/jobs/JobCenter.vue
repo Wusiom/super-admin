@@ -95,6 +95,8 @@ function statusType(status: string): 'info' | '' | 'success' | 'danger' {
     const map: Record<string, 'info' | '' | 'success' | 'danger'> = {
         pending: 'info',
         running: '',
+        active: '',
+        success: 'success',
         completed: 'success',
         failed: 'danger',
     };
@@ -105,6 +107,8 @@ function statusLabel(status: string): string {
     const map: Record<string, string> = {
         pending: '等待中',
         running: '运行中',
+        active: '运行中',
+        success: '成功',
         completed: '成功',
         failed: '失败',
     };
