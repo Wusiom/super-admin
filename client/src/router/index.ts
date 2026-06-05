@@ -15,23 +15,25 @@ const router = createRouter({
       children: [
         {
           path: 'knowledge/capture',
-          name: 'KnowledgeCapture',
-          component: () => import('../views/knowledge/CapturePage.vue'),
+          redirect: '/jobs',
         },
         {
           path: 'knowledge/list',
           name: 'KnowledgeList',
           component: () => import('../views/knowledge/KnowledgeList.vue'),
+          meta: { title: '知识列表' },
         },
         {
           path: 'jobs',
-          name: 'JobCenter',
-          component: () => import('../views/jobs/JobCenter.vue'),
+          name: 'CaptureConsole',
+          component: () => import('../views/knowledge/CaptureConsole.vue'),
+          meta: { title: '知识采集' },
         },
         {
           path: 'settings',
           name: 'Settings',
           component: () => import('../views/settings/SettingsPage.vue'),
+          meta: { title: '设置' },
         },
         {
           path: '',

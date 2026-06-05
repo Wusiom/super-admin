@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue'
+import { onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useToolsStore } from '../stores/tools'
 import {
-  Monitor,
   Setting,
   DocumentCopy,
   List,
@@ -28,7 +27,6 @@ const iconMap: Record<string, Component> = {
   DocumentCopy,
   List,
   Grid,
-  Monitor,
   Setting,
 }
 
@@ -38,12 +36,12 @@ function getToolIcon(iconName: string): Component {
 </script>
 
 <template>
-  <div class="flex h-screen bg-[hsl(225,11%,3.5%)]">
+  <div class="flex h-screen bg-ground">
     <!-- 侧边栏 -->
-    <aside class="w-[220px] bg-[hsl(234,10%,7%)] border-r border-[rgba(255,255,255,0.06)] flex flex-col shrink-0">
+    <aside class="w-[220px] bg-surface border-r border-[rgba(255,255,255,0.06)] flex flex-col shrink-0">
       <!-- Logo -->
       <div class="h-12 flex items-center px-4 border-b border-[rgba(255,255,255,0.06)]">
-        <span class="text-[15px] font-semibold text-[hsl(44,16%,88%)] tracking-tight font-[Space_Grotesk]">
+        <span class="text-[15px] font-semibold text-foreground tracking-tight font-[Space_Grotesk]">
           Super Admin
         </span>
       </div>
@@ -73,18 +71,6 @@ function getToolIcon(iconName: string): Component {
           系统
         </div>
 
-        <!-- 任务中心 -->
-        <el-menu-item
-          index="/jobs"
-          @click="router.push('/jobs')"
-          class="!h-auto !leading-none !mb-px"
-        >
-          <el-icon class="!mr-2 !text-sm">
-            <Monitor />
-          </el-icon>
-          <span class="text-[13px]">任务中心</span>
-        </el-menu-item>
-
         <!-- 设置 -->
         <el-menu-item
           index="/settings"
@@ -100,9 +86,25 @@ function getToolIcon(iconName: string): Component {
     </aside>
 
     <!-- 主内容区 -->
-    <main class="flex-1 overflow-auto">
-      <router-view />
-    </main>
+    <section class="flex-1 flex flex-col overflow-hidden">
+      <!-- Topbar -->
+      <div class="h-12 flex items-center justify-between px-5 border-b border-[rgba(255,255,255,0.06)] bg-[hsl(234,10%,7%)] shrink-0">
+        <span class="text-[15px] font-semibold text-[hsl(44,16%,88%)] tracking-[-0.01em] font-[Space_Grotesk]">
+          {{ route.meta?.title || route.name || '' }}
+        </span>
+        <div class="flex items-center gap-3">
+          <span class="flex items-center gap-1.5 text-[11px] text-[hsl(40,5%,41%)] font-mono">
+            <span class="w-1.5 h-1.5 rounded-full bg-[#34d399]" />
+            系统正常
+          </span>
+        </div>
+      </div>
+
+      <!-- 内容区 -->
+      <div class="flex-1 overflow-hidden p-5 flex flex-col">
+        <router-view />
+      </div>
+    </section>
   </div>
 </template>
 

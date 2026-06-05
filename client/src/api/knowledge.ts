@@ -15,6 +15,7 @@ export interface CapturePayload {
   url: string
   cookies?: string
   localStorage?: string
+  pageHtml?: string
 }
 
 export interface CaptureResult {

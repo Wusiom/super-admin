@@ -34,7 +34,14 @@ function serializeStorage(storage) {
   return result;
 }
 
-// 响应 service worker 的 localStorage 请求
+function createPageSnapshot() {
+  return {
+    title: document.title || '',
+    html: document.documentElement ? document.documentElement.outerHTML : '',
+  };
+}
+
+// 响应 service worker 的请求
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === 'getLocalStorage') {
     try {
@@ -44,9 +51,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ success: false, error: err.message });
     }
   }
+  if (message.action === 'getPageSnapshot') {
+    try {
+      sendResponse({ success: true, data: createPageSnapshot() });
+    } catch (err) {
+      sendResponse({ success: false, error: err.message });
+    }
+  }
 });
 
 // 为测试导出（Node.js 环境）
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { serializeStorage };
+  module.exports = { serializeStorage, createPageSnapshot };
 }

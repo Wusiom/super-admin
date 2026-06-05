@@ -67,60 +67,154 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleString('zh-CN')
 }
 
+function statusPillClass(status: string): string {
+  return status === 'published' ? 'pill pill-success' : 'pill pill-draft'
+}
+
+function statusLabel(status: string): string {
+  return status === 'published' ? '已发布' : '草稿'
+}
+
 onMounted(loadItems)
 </script>
 
 <template>
-  <div>
-    <h2 class="text-xl font-semibold mb-4">知识列表</h2>
+  <div class="h-full flex flex-col overflow-hidden">
+    <!-- 页面标题 -->
+    <div class="flex items-center justify-between mb-4 shrink-0">
+      <div>
+        <h2 class="text-[24px] font-semibold text-[var(--text-primary)] tracking-[-0.01em] font-[Space_Grotesk]">
+          知识列表
+        </h2>
+        <p class="text-[13px] text-[var(--text-muted)] mt-0.5">
+          管理已采集的知识内容
+        </p>
+      </div>
+      <span class="text-[11px] text-[var(--text-muted)] font-mono">
+        共 {{ total }} 条
+      </span>
+    </div>
 
-    <el-table :data="items" v-loading="loading" stripe @row-click="viewMarkdown" class="cursor-pointer">
-      <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
-      <el-table-column prop="url" label="URL" min-width="250" show-overflow-tooltip />
-      <el-table-column prop="source" label="来源" width="120" />
-      <el-table-column label="采集时间" width="180">
-        <template #default="{ row }">
-          {{ formatDate(row.capturedAt) }}
-        </template>
-      </el-table-column>
-      <el-table-column prop="status" label="状态" width="100">
-        <template #default="{ row }">
-          <el-tag :type="row.status === 'published' ? 'success' : 'info'" size="small">
-            {{ row.status === 'published' ? '已发布' : '草稿' }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="80" fixed="right">
-        <template #default="{ row }">
-          <el-popconfirm
-            title="确认删除该条知识？"
-            @confirm="handleDelete(row)"
-            @click.stop
-          >
-            <template #reference>
-              <el-button type="danger" size="small" @click.stop>删除</el-button>
-            </template>
-          </el-popconfirm>
-        </template>
-      </el-table-column>
-    </el-table>
+    <!-- 表格 -->
+    <div class="table-wrap flex-1 min-h-0 flex flex-col">
+      <el-table
+        :data="items"
+        v-loading="loading"
+        class="knowledge-table"
+        @row-click="(row: any) => viewMarkdown(row)"
+      >
+        <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="url" label="URL" min-width="260" show-overflow-tooltip />
+        <el-table-column prop="source" label="来源" width="140" />
+        <el-table-column label="采集时间" width="180">
+          <template #default="{ row }">
+            <span class="tabular-nums">{{ formatDate(row.capturedAt) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <span :class="statusPillClass(row.status)">
+              <span class="dot" />
+              {{ statusLabel(row.status) }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" fixed="right">
+          <template #default="{ row }">
+            <el-popconfirm
+              title="确认删除该条知识？"
+              @confirm="handleDelete(row)"
+              @click.stop
+            >
+              <template #reference>
+                <el-button type="danger" size="small" @click.stop>删除</el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
 
-    <div class="mt-4 flex justify-end">
+    <!-- 分页 -->
+    <div class="mt-3 flex justify-end shrink-0">
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
         :total="total"
         :page-sizes="[10, 20, 50]"
         layout="total, sizes, prev, pager, next"
+        size="small"
         @current-change="onPageChange"
         @size-change="onSizeChange"
       />
     </div>
 
     <!-- Markdown 查看弹窗 -->
-    <el-dialog v-model="dialogVisible" :title="currentTitle" width="800px" top="5vh">
-      <div v-if="dialogLoading" class="text-center text-gray-400 py-10">加载中...</div>
-      <pre v-else class="whitespace-pre-wrap text-sm leading-relaxed max-h-[70vh] overflow-auto bg-gray-50 p-4 rounded">{{ currentMarkdown }}</pre>
+    <el-dialog
+      v-model="dialogVisible"
+      :title="currentTitle"
+      width="800px"
+      top="5vh"
+    >
+      <div v-if="dialogLoading" class="flex items-center justify-center py-12 text-[var(--text-muted)] text-sm">
+        加载中...
+      </div>
+      <pre
+        v-else
+        class="whitespace-pre-wrap text-[13px] leading-relaxed max-h-[70vh] overflow-auto bg-[var(--surface-2)] p-5 rounded-lg text-[var(--text-primary)]"
+      >{{ currentMarkdown }}</pre>
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+/* Table wrapper — matching prototype .table-wrap */
+.table-wrap {
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Table overrides */
+:deep(.knowledge-table) {
+  background: transparent;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+:deep(.knowledge-table .el-table__inner-wrapper) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+:deep(.knowledge-table .el-table__body-wrapper) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+:deep(.knowledge-table .el-table__header th) {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+}
+
+:deep(.knowledge-table .el-table__body tr) {
+  cursor: pointer;
+}
+
+/* Cell text sizing */
+:deep(.knowledge-table .el-table__cell) {
+  font-size: 13px;
+}
+
+/* Empty / loading states */
+:deep(.el-table__empty-text) {
+  color: var(--text-muted);
+}
+</style>

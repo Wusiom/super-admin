@@ -1,26 +1,26 @@
 <template>
-  <div class="dark flex min-h-full h-screen bg-[hsl(225,11%,3.5%)]">
+  <div class="dark flex min-h-full h-screen bg-ground">
     <!-- 左侧品牌区 -->
     <div class="relative hidden lg:flex flex-1 items-center justify-center overflow-hidden">
       <div class="login-background absolute inset-0 size-full"></div>
       <div class="relative z-10 flex flex-col items-center">
         <img src="/peo.svg" alt="peo" class="w-48 h-64 animate-float" />
-        <p class="mt-4 text-xl font-semibold tracking-tight text-[hsl(44,16%,88%)] font-[Space_Grotesk]">
+        <p class="mt-4 text-xl font-semibold tracking-tight text-foreground font-[Space_Grotesk]">
           工具管理后台系统
         </p>
       </div>
     </div>
 
     <!-- 右侧登录表单 -->
-    <div class="relative flex flex-col items-center justify-center w-full lg:w-[420px] px-8 py-10 bg-[hsl(234,10%,7%)] border-l border-[rgba(255,255,255,0.06)]">
+    <div class="relative flex flex-col items-center justify-center w-full lg:w-[420px] px-8 py-10 bg-surface border-l border-[rgba(255,255,255,0.06)]">
       <!-- 金色顶部细线 -->
-      <div class="absolute top-0 left-8 right-8 h-px bg-gradient-to-r from-transparent via-[hsl(43,60%,58%)] to-transparent opacity-60"></div>
+      <div class="absolute top-0 left-8 right-8 h-px bg-gradient-to-r from-transparent via-primary to-transparent opacity-60"></div>
 
       <div class="w-full sm:max-w-sm">
-        <h2 class="mb-2 text-2xl font-bold tracking-tight text-[hsl(44,16%,88%)] font-[Space_Grotesk]">
+        <h2 class="mb-2 text-2xl font-bold tracking-tight text-foreground font-[Space_Grotesk]">
           登 录
         </h2>
-        <p class="mb-8 text-sm text-[hsl(44,7%,67%)]">
+        <p class="mb-8 text-sm text-muted-fg">
           请输入账号信息登录系统
         </p>
 

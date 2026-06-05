@@ -6,7 +6,7 @@ export const manifest: ToolManifest = {
   key: 'knowledge-capture',
   name: '知识采集',
   icon: 'DocumentCopy',
-  route: 'knowledge/capture',
+  route: 'jobs',
   module: KnowledgeCaptureModule,
   processors: [
     {
