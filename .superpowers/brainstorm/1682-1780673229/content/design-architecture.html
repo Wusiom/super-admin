@@ -1,0 +1,100 @@
+<h2>设计概览：Markdown 阅读编辑器</h2>
+<p class="subtitle">md-editor-v3 + 弹窗阅览 + 全屏编辑 + Ctrl+S 保存</p>
+
+<div class="section">
+  <h3>🏗 组件结构</h3>
+</div>
+
+<div class="mockup" style="margin-bottom:20px;">
+  <div class="mockup-header">弹窗模式（列表 → 点击行 → 弹窗）</div>
+  <div class="mockup-body" style="background:#0d1117;border-radius:6px;padding:0;overflow:hidden;">
+    <!-- Dialog header -->
+    <div style="background:#161b22;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #30363d;">
+      <span style="color:#f0f6fc;font-weight:600;font-size:14px;">深入理解 JavaScript 闭包</span>
+      <div style="display:flex;gap:8px;">
+        <button class="mock-button" style="font-size:11px;padding:4px 10px;">✏️ 编辑</button>
+        <button class="mock-button" style="font-size:11px;padding:4px 10px;">⛶ 全屏</button>
+        <span style="color:#8b949e;cursor:pointer;margin-left:4px;">✕</span>
+      </div>
+    </div>
+    <!-- Preview-only body -->
+    <div style="padding:20px;max-height:60vh;overflow:auto;">
+      <h1 style="color:#f0f6fc;font-size:22px;font-weight:700;border-bottom:1px solid #21262d;padding-bottom:8px;">深入理解 JavaScript 闭包</h1>
+      <p style="color:#c9d1d9;">闭包是指一个函数能够<strong>记住并访问</strong>它的词法作用域...</p>
+      <pre style="background:#161b22;border-radius:6px;padding:12px;overflow:auto;"><code><span style="color:#ff7b72;">function</span> <span style="color:#d2a8ff;">outer</span>() { ... }</code></pre>
+      <div style="color:#8b949e;font-size:11px;margin-top:12px;border-top:1px solid #21262d;padding-top:8px;">
+        最后保存：2026-06-05 14:30 · 按 Ctrl+S 保存
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mockup">
+  <div class="mockup-header">全屏模式（点"全屏" → /knowledge/edit/:id）</div>
+  <div class="mockup-body" style="background:#0d1117;border-radius:6px;padding:0;overflow:hidden;">
+    <!-- Toolbar -->
+    <div style="background:#161b22;padding:10px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #30363d;">
+      <span style="color:#8b949e;cursor:pointer;">← 返回列表</span>
+      <span style="color:#f0f6fc;font-weight:600;font-size:14px;flex:1;">深入理解 JavaScript 闭包</span>
+      <button class="mock-button" style="font-size:11px;padding:4px 10px;">👁 预览</button>
+      <button class="mock-button active" style="font-size:11px;padding:4px 10px;background:#30363d;">✏️ 编辑</button>
+      <span style="color:#8b949e;font-size:11px;">Ctrl+S 保存</span>
+    </div>
+    <!-- Split pane body -->
+    <div style="display:flex;min-height:450px;">
+      <div style="width:50%;background:#0d1117;border-right:1px solid #21262d;padding:12px;font-family:monospace;font-size:12.5px;color:#c9d1d9;white-space:pre-wrap;overflow:auto;"># 深入理解 JavaScript 闭包
+
+## 什么是闭包？
+
+闭包是指一个函数能够**记住并访问**
+它的词法作用域...</div>
+      <div style="width:50%;background:#0d1117;padding:20px;overflow:auto;">
+        <h1 style="color:#f0f6fc;font-size:22px;font-weight:700;border-bottom:1px solid #21262d;padding-bottom:8px;">深入理解 JavaScript 闭包</h1>
+        <h2 style="color:#f0f6fc;font-size:16px;margin-top:14px;">什么是闭包？</h2>
+        <p style="color:#c9d1d9;">闭包是指一个函数能够<strong>记住并访问</strong>它的词法作用域...</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3>📦 新增 / 修改文件清单</h3>
+</div>
+
+<table style="width:100%;border-collapse:collapse;font-size:13px;">
+  <tr style="background:#161b22;">
+    <th style="border:1px solid #30363d;padding:6px 12px;text-align:left;">文件</th>
+    <th style="border:1px solid #30363d;padding:6px 12px;text-align:left;">改动</th>
+    <th style="border:1px solid #30363d;padding:6px 12px;text-align:left;">说明</th>
+  </tr>
+  <tr>
+    <td style="border:1px solid #30363d;padding:6px 12px;font-family:monospace;">client/src/components/MarkdownEditor.vue</td>
+    <td style="border:1px solid #30363d;padding:6px 12px;"><span class="label" style="background:#238636;">新增</span></td>
+    <td style="border:1px solid #30363d;padding:6px 12px;">封装 md-editor-v3，通用组件</td>
+  </tr>
+  <tr style="background:#161b22;">
+    <td style="border:1px solid #30363d;padding:6px 12px;font-family:monospace;">client/src/views/knowledge/KnowledgeList.vue</td>
+    <td style="border:1px solid #30363d;padding:6px 12px;"><span class="label" style="background:#c9a050;">修改</span></td>
+    <td style="border:1px solid #30363d;padding:6px 12px;">dialog 内替换 pre → MarkdownEditor</td>
+  </tr>
+  <tr>
+    <td style="border:1px solid #30363d;padding:6px 12px;font-family:monospace;">client/src/views/knowledge/MarkdownEditPage.vue</td>
+    <td style="border:1px solid #30363d;padding:6px 12px;"><span class="label" style="background:#238636;">新增</span></td>
+    <td style="border:1px solid #30363d;padding:6px 12px;">全屏编辑页面（路由 /edit/:id）</td>
+  </tr>
+  <tr style="background:#161b22;">
+    <td style="border:1px solid #30363d;padding:6px 12px;font-family:monospace;">client/src/router/index.ts</td>
+    <td style="border:1px solid #30363d;padding:6px 12px;"><span class="label" style="background:#c9a050;">修改</span></td>
+    <td style="border:1px solid #30363d;padding:6px 12px;">新增路由</td>
+  </tr>
+  <tr>
+    <td style="border:1px solid #30363d;padding:6px 12px;font-family:monospace;">client/src/api/knowledge.ts</td>
+    <td style="border:1px solid #30363d;padding:6px 12px;"><span class="label" style="background:#c9a050;">修改</span></td>
+    <td style="border:1px solid #30363d;padding:6px 12px;">新增 updateKnowledgeItem() API</td>
+  </tr>
+  <tr style="background:#161b22;">
+    <td style="border:1px solid #30363d;padding:6px 12px;font-family:monospace;">server/.../knowledge-capture.controller.ts</td>
+    <td style="border:1px solid #30363d;padding:6px 12px;"><span class="label" style="background:#c9a050;">修改</span></td>
+    <td style="border:1px solid #30363d;padding:6px 12px;">新增 PUT /items/:id 端点</td>
+  </tr>
+</table>

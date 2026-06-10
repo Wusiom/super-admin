@@ -1,0 +1,41 @@
+<h2>Vue 3 Markdown 编辑器库对比</h2>
+<p class="subtitle">三款现成的分屏编辑器，无需从零造轮子</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>md-editor-v3</h3>
+      <p>最流行，CodeMirror 5 + Markdown 渲染。内置分屏预览、同步滚动、暗色主题、全屏、TOC 目录。</p>
+      <div class="pros-cons" style="margin-top:8px;">
+        <div class="pros"><h4>Pros</h4><ul><li>开箱即用，API 简洁</li><li>暗金主题可自定义</li><li>10.6k GitHub stars</li><li>中文文档齐全</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>CodeMirror 5 (非 v6)</li><li>包体积偏大</li></ul></div>
+      </div>
+      <p style="margin-top:8px;font-size:12px;color:var(--text-muted);">npm: <code>@kangc/v-md-editor</code> (next 版本支持 Vue 3)</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>md-editor-v3 (新一代)</h3>
+      <p>CodeMirror 6 底层，专为 Vue 3 重写。三种模式（edit/split/preview）、插件系统、拖拽调整窗格。</p>
+      <div class="pros-cons" style="margin-top:8px;">
+        <div class="pros"><h4>Pros</h4><ul><li>CodeMirror 6 — 现代化架构</li><li>Vue 3 原生支持</li><li>previewOnly 模式即纯阅读</li><li>TypeScript 类型完善</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>较新，社区略小</li><li>主题定制需要 CSS 变量</li></ul></div>
+      </div>
+      <p style="margin-top:8px;font-size:12px;color:var(--text-muted);">npm: <code>md-editor-v3</code></p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>vue-markdown-editor</h3>
+      <p>模块化设计，可选 textarea 或 CodeMirror 引擎。轻量灵活，按需引入。</p>
+      <div class="pros-cons" style="margin-top:8px;">
+        <div class="pros"><h4>Pros</h4><ul><li>轻量基础版 (textarea)</li><li>可升级到 CodeMirror</li><li>模块化、按需引入</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>基础版功能少</li><li>配置稍复杂</li></ul></div>
+      </div>
+      <p style="margin-top:8px;font-size:12px;color:var(--text-muted);">npm: <code>@kangc/v-md-editor</code></p>
+    </div>
+  </div>
+</div>

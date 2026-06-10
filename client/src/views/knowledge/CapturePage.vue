@@ -138,7 +138,7 @@ async function handleCapture() {
 
     <!-- 底部链接 -->
     <div class="mt-8 pt-5 border-t border-[var(--hairline)]">
-      <router-link to="/knowledge/list" class="text-[var(--accent-gold)] hover:underline text-sm">
+      <router-link to="/jobs" class="text-[var(--accent-gold)] hover:underline text-sm">
         查看已采集的知识 →
       </router-link>
     </div>

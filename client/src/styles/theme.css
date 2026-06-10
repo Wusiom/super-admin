@@ -406,3 +406,126 @@
   border: 1px solid var(--hairline);
   color: var(--text-primary);
 }
+
+/* ---- Progress ---- */
+.el-progress-bar__outer {
+  background-color: var(--surface-3) !important;
+  border-radius: 100px;
+}
+.el-progress-bar__inner {
+  background-color: var(--accent-gold) !important;
+  border-radius: 100px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.el-progress__text {
+  font-family: var(--font-mono);
+  font-size: 12px !important;
+  color: var(--text-secondary) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Status variants */
+.el-progress.is-success .el-progress-bar__inner {
+  background-color: var(--pill-success-color) !important;
+}
+.el-progress.is-success .el-progress__text {
+  color: var(--pill-success-color) !important;
+}
+.el-progress.is-warning .el-progress-bar__inner {
+  background-color: var(--pill-running-color) !important;
+}
+.el-progress.is-warning .el-progress__text {
+  color: var(--pill-running-color) !important;
+}
+.el-progress.is-exception .el-progress-bar__inner {
+  background-color: var(--pill-failed-color) !important;
+}
+.el-progress.is-exception .el-progress__text {
+  color: var(--pill-failed-color) !important;
+}
+
+/* Indeterminate animation — gold shimmer */
+@keyframes el-progress-gold-indeterminate {
+  0% { left: -100%; }
+  100% { left: 100%; }
+}
+.el-progress-bar__inner.is-indeterminate {
+  animation: el-progress-gold-indeterminate 2.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--accent-gold) 35%,
+    var(--accent-gold) 65%,
+    transparent 100%
+  ) !important;
+}
+
+/* Striped variant: gold-on-dark stripes */
+.el-progress-bar__inner.is-striped {
+  background-image: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.08) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.08) 75%,
+    transparent 75%,
+    transparent
+  ) !important;
+  background-size: 1.25em 1.25em;
+}
+
+/* Circle / dashboard progress: stroke override */
+.el-progress circle:first-child {
+  stroke: var(--surface-3);
+}
+.el-progress circle:last-child {
+  stroke: var(--accent-gold);
+  transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.el-progress.is-success circle:last-child {
+  stroke: var(--pill-success-color);
+}
+.el-progress.is-warning circle:last-child {
+  stroke: var(--pill-running-color);
+}
+.el-progress.is-exception circle:last-child {
+  stroke: var(--pill-failed-color);
+}
+
+/* ---- Global Scrollbar ---- */
+/* WebKit (Chrome / Edge / Safari) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-track:vertical {
+  border-left: 1px solid var(--hairline-soft);
+}
+::-webkit-scrollbar-track:horizontal {
+  border-top: 1px solid var(--hairline-soft);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: 3px;
+  border: 1px solid var(--hairline);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(234, 10%, 18%);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+::-webkit-scrollbar-thumb:active {
+  background: hsl(234, 10%, 22%);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}

@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Markdown 分屏编辑器 — 设计稿 v0</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:            hsl(234, 10%, 7%);
+    --surface-1:     hsl(234, 10%, 7%);
+    --surface-2:     hsl(234, 10%, 10%);
+    --surface-3:     hsl(234, 10%, 12%);
+    --text-primary:  hsl(44, 16%, 88%);
+    --text-secondary: hsl(44, 7%, 67%);
+    --text-muted:    hsl(40, 5%, 41%);
+    --accent-gold:   hsl(43, 60%, 58%);
+    --accent-gold-soft: rgba(212, 168, 83, 0.15);
+    --hairline:      rgba(255, 255, 255, 0.06);
+    --hairline-soft: rgba(255, 255, 255, 0.04);
+    --radius:        8px;
+    --radius-sm:     4px;
+    --font-heading:  'Space Grotesk', system-ui, sans-serif;
+    --font-body:     system-ui, -apple-system, sans-serif;
+    --font-mono:     'JetBrains Mono', 'Consolas', monospace;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font-body);
+    background: var(--bg);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ================================================================
+     Layout: side-by-side demo
+     ================================================================ */
+  .demo-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+    padding: 40px;
+    max-width: 1440px;
+    margin: 0 auto;
+    min-height: 100vh;
+  }
+
+  .section-label {
+    font-family: var(--font-heading);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--hairline);
+  }
+
+  /* ================================================================
+     A. Dialog version
+     ================================================================ */
+  .dialog-demo {
+    position: relative;
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    overflow: hidden;
+    max-width: 900px;
+    align-self: center;
+    width: 100%;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+  }
+
+  .dialog-overlay-bg {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 0%, rgba(212,168,83,0.04) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  /* Header */
+  .dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--hairline);
+    position: relative;
+    z-index: 1;
+  }
+  .dialog-title {
+    font-family: var(--font-heading);
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+  .dialog-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-family: var(--font-body);
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid var(--hairline);
+    cursor: pointer;
+    transition: all 150ms ease-out;
+    white-space: nowrap;
+  }
+  .btn-icon:hover {
+    color: var(--text-primary);
+    border-color: rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.04);
+  }
+  .btn-icon svg {
+    width: 14px;
+    height: 14px;
+    opacity: 0.7;
+  }
+
+  /* Body: split panes */
+  .dialog-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    min-height: 420px;
+    max-height: 60vh;
+    position: relative;
+    z-index: 1;
+  }
+  .pane {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .pane-left {
+    border-right: 1px solid var(--hairline);
+    background: var(--surface-1);
+  }
+  .pane-right {
+    background: var(--surface-2);
+  }
+
+  /* Pane header */
+  .pane-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--hairline-soft);
+    font-family: var(--font-body);
+    flex-shrink: 0;
+    user-select: none;
+  }
+  .pane-label .lang-tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--accent-gold);
+    background: var(--accent-gold-soft);
+    padding: 2px 6px;
+    border-radius: 3px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  /* Editor content area */
+  .editor-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-primary);
+    tab-size: 2;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .editor-content:focus {
+    outline: none;
+  }
+
+  /* Syntax highlighting hints */
+  .editor-content .md-heading { color: var(--accent-gold); font-weight: 600; }
+  .editor-content .md-code { color: hsl(200, 60%, 65%); }
+  .editor-content .md-link { color: hsl(200, 60%, 65%); text-decoration: underline; text-decoration-color: rgba(100,180,220,0.25); }
+  .editor-content .md-bold { font-weight: 700; color: hsl(44, 16%, 95%); }
+  .editor-content .md-list { color: var(--accent-gold); }
+
+  /* Preview content area */
+  .preview-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.75;
+    color: var(--text-primary);
+  }
+  .preview-content h1 { font-family: var(--font-heading); font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 12px; color: var(--text-primary); }
+  .preview-content h2 { font-family: var(--font-heading); font-size: 17px; font-weight: 600; margin-top: 24px; margin-bottom: 8px; color: var(--text-primary); }
+  .preview-content h3 { font-family: var(--font-heading); font-size: 14px; font-weight: 600; margin-top: 20px; margin-bottom: 6px; color: var(--text-secondary); }
+  .preview-content p { margin-bottom: 10px; }
+  .preview-content ul, .preview-content ol { padding-left: 20px; margin-bottom: 10px; }
+  .preview-content li { margin-bottom: 4px; }
+  .preview-content code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--accent-gold-soft);
+    color: var(--accent-gold);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+  .preview-content pre {
+    background: var(--surface-1);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm);
+    padding: 14px;
+    overflow-x: auto;
+    margin-bottom: 12px;
+  }
+  .preview-content pre code {
+    background: none;
+    padding: 0;
+    color: var(--text-primary);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .preview-content a { color: var(--accent-gold); text-decoration: none; }
+  .preview-content a:hover { text-decoration: underline; }
+  .preview-content blockquote {
+    border-left: 2px solid var(--accent-gold);
+    padding-left: 14px;
+    color: var(--text-secondary);
+    font-style: italic;
+    margin-bottom: 12px;
+  }
+
+  /* Footer */
+  .dialog-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    border-top: 1px solid var(--hairline);
+    position: relative;
+    z-index: 1;
+  }
+  .footer-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .footer-meta .divider {
+    width: 1px;
+    height: 10px;
+    background: var(--hairline);
+  }
+  .kbd-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+  }
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 6px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    background: var(--surface-3);
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+    color: var(--text-secondary);
+    min-width: 20px;
+  }
+
+  /* Dirty dot */
+  .dirty-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent-gold);
+    flex-shrink: 0;
+  }
+
+  /* ================================================================
+     B. Fullscreen version
+     ================================================================ */
+  .fullscreen-demo {
+    background: var(--surface-1);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    overflow: hidden;
+    width: 100%;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.4);
+  }
+
+  /* Top bar */
+  .fs-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 44px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--surface-1);
+  }
+  .fs-topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .fs-topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .btn-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: var(--font-body);
+    padding: 4px 0;
+    transition: color 120ms;
+  }
+  .btn-back:hover { color: var(--text-primary); }
+  .btn-back svg { width: 14px; height: 14px; }
+  .fs-title {
+    font-family: var(--font-heading);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+
+  /* Fullscreen split body */
+  .fs-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    height: 520px;
+  }
+  .fs-body .pane-left { border-right: 1px solid var(--hairline); }
+  .fs-body .editor-content,
+  .fs-body .preview-content {
+    height: 100%;
+  }
+
+  /* ================================================================
+     Utility: resize handle between panes (visual only)
+     ================================================================ */
+  .resize-handle {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--hairline);
+    z-index: 2;
+    pointer-events: none;
+  }
+  .resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: -2px;
+    width: 5px;
+    height: 32px;
+    background: var(--surface-3);
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+    transform: translateY(-50%);
+  }
+
+  /* ================================================================
+     Tweak: prototype toggle
+     ================================================================ */
+  .tweaks-panel {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--surface-3);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    font-size: 12px;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 180px;
+  }
+  .tweaks-panel summary {
+    font-family: var(--font-heading);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+  }
+  .tweak-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  .tweak-row input[type="checkbox"] {
+    accent-color: var(--accent-gold);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div class="demo-shell">
+
+  <!-- ============================================================
+       A. Dialog Version
+       ============================================================ -->
+  <section>
+    <div class="section-label">场景 A — 弹窗（KnowledgeList 内 Dialog）</div>
+
+    <div class="dialog-demo">
+      <div class="dialog-overlay-bg"></div>
+
+      <!-- Header -->
+      <div class="dialog-header">
+        <span class="dialog-title">深入理解 JavaScript 闭包</span>
+        <div class="dialog-header-actions">
+          <button class="btn-icon">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="5" height="5" rx="0.5"/><rect x="9" y="2" width="5" height="5" rx="0.5"/><rect x="2" y="9" width="5" height="5" rx="0.5"/><rect x="9" y="9" width="5" height="5" rx="0.5"/></svg>
+            全屏
+          </button>
+          <button class="btn-icon" style="border:none; padding:5px 6px;">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Body: split panes -->
+      <div class="dialog-body" style="position:relative;">
+        <div class="pane pane-left">
+          <div class="pane-label">
+            编辑
+            <span class="lang-tag">Markdown</span>
+          </div>
+          <div class="editor-content" contenteditable="true" spellcheck="false">
+<span class="md-heading"># 深入理解 JavaScript 闭包</span>
+
+<span class="md-heading">## 什么是闭包？</span>
+
+闭包是指一个函数能够记住并访问它的词法作用域，
+即使该函数在它的词法作用域之外执行。
+
+<span class="md-heading">## 核心示例</span>
+
+```js
+function createCounter() {
+  let count = 0;
+  return function() {
+    count++;
+    return count;
+  };
+}
+
+const counter = createCounter();
+console.log(counter()); <span class="md-list">// 1</span>
+console.log(counter()); <span class="md-list">// 2</span>
+```
+
+<span class="md-heading">## 实际应用</span>
+
+<span class="md-list">-</span> <span class="md-bold">模块模式</span>：封装私有变量
+<span class="md-list">-</span> <span class="md-bold">事件处理器</span>：保持回调上下文
+<span class="md-list">-</span> <span class="md-bold">柯里化</span>：部分应用函数参数
+
+> 闭包是 JavaScript 最强大的特性之一，
+> 理解它对于掌握异步编程至关重要。
+</div>
+        </div>
+
+        <div class="pane pane-right">
+          <div class="pane-label">预览</div>
+          <div class="preview-content">
+            <h1>深入理解 JavaScript 闭包</h1>
+
+            <h2>什么是闭包？</h2>
+            <p>闭包是指一个函数能够记住并访问它的词法作用域，即使该函数在它的词法作用域之外执行。</p>
+
+            <h2>核心示例</h2>
+            <pre><code><span style="color:hsl(220,50%,65%)">function</span> <span style="color:hsl(44,16%,88%)">createCounter</span>() {
+  <span style="color:hsl(220,50%,65%)">let</span> count = <span style="color:hsl(150,50%,60%)">0</span>;
+  <span style="color:hsl(220,50%,65%)">return</span> <span style="color:hsl(220,50%,65%)">function</span>() {
+    count++;
+    <span style="color:hsl(220,50%,65%)">return</span> count;
+  };
+}
+
+<span style="color:hsl(220,50%,65%)">const</span> counter = <span style="color:hsl(44,16%,88%)">createCounter</span>();
+<span style="color:hsl(44,16%,88%)">console</span>.<span style="color:hsl(150,50%,60%)">log</span>(<span style="color:hsl(44,16%,88%)">counter</span>()); <span style="color:hsl(40,5%,41%)">// 1</span>
+<span style="color:hsl(44,16%,88%)">console</span>.<span style="color:hsl(150,50%,60%)">log</span>(<span style="color:hsl(44,16%,88%)">counter</span>()); <span style="color:hsl(40,5%,41%)">// 2</span></code></pre>
+
+            <h2>实际应用</h2>
+            <ul>
+              <li><strong style="color:hsl(44,16%,95%)">模块模式</strong>：封装私有变量</li>
+              <li><strong style="color:hsl(44,16%,95%)">事件处理器</strong>：保持回调上下文</li>
+              <li><strong style="color:hsl(44,16%,95%)">柯里化</strong>：部分应用函数参数</li>
+            </ul>
+
+            <blockquote>闭包是 JavaScript 最强大的特性之一，理解它对于掌握异步编程至关重要。</blockquote>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="dialog-footer">
+        <div class="footer-meta">
+          <span class="dirty-dot"></span>
+          最后保存：06-05 14:30
+        </div>
+        <div class="kbd-hint">
+          <span class="kbd">Ctrl</span> + <span class="kbd">S</span> 保存
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       B. Fullscreen Version
+       ============================================================ -->
+  <section>
+    <div class="section-label">场景 B — 全屏页（/knowledge/edit/:id）</div>
+
+    <div class="fullscreen-demo">
+      <!-- Top bar -->
+      <div class="fs-topbar">
+        <div class="fs-topbar-left">
+          <button class="btn-back">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3L5 8l5 5"/></svg>
+            返回列表
+          </button>
+          <span style="color:var(--text-muted);font-size:12px;">/</span>
+          <span class="fs-title">深入理解 JavaScript 闭包</span>
+        </div>
+        <div class="fs-topbar-right">
+          <span class="kbd-hint">
+            <span class="dirty-dot" style="margin-right:4px;"></span>
+            <span class="kbd">Ctrl</span> + <span class="kbd">S</span> 保存
+          </span>
+        </div>
+      </div>
+
+      <!-- Split body -->
+      <div class="fs-body" style="position:relative;">
+        <div class="pane pane-left">
+          <div class="pane-label">
+            编辑
+            <span class="lang-tag">Markdown</span>
+          </div>
+          <div class="editor-content" contenteditable="true" spellcheck="false" style="height:100%;">
+<span class="md-heading"># 深入理解 JavaScript 闭包</span>
+
+<span class="md-heading">## 什么是闭包？</span>
+
+闭包（Closure）是指一个函数能够记住并访问
+它的词法作用域，即使该函数在它的词法作用域
+之外被执行。这是 JavaScript 最核心的概念之一。
+
+<span class="md-heading">## 词法作用域</span>
+
+JavaScript 采用词法作用域（静态作用域），
+这意味着函数的作用域在<span class="md-bold">函数定义时</span>
+就已经确定，而不是在函数调用时。
+
+<span class="md-heading">## 经典示例</span>
+
+```js
+function outer() {
+  const message = 'Hello';
+
+  function inner() {
+    console.log(message);
+  }
+
+  return inner;
+}
+
+const fn = outer();
+fn(); // 'Hello' — 闭包让 inner 记住了 message
+```
+
+<span class="md-heading">## 常见用途</span>
+
+<span class="md-list">1.</span> 数据私有化（模块模式）
+<span class="md-list">2.</span> 回调函数与事件处理
+<span class="md-list">3.</span> 函数工厂与柯里化
+<span class="md-list">4.</span> 循环中的异步问题
+
+<span class="md-heading">## 注意事项</span>
+
+> 闭包会持有对外部变量的引用，
+> 可能导致内存泄漏。在不需要时
+> 应及时解除引用。
+</div>
+        </div>
+
+        <div class="pane pane-right">
+          <div class="pane-label">预览</div>
+          <div class="preview-content" style="height:100%;">
+            <h1>深入理解 JavaScript 闭包</h1>
+
+            <h2>什么是闭包？</h2>
+            <p>闭包（Closure）是指一个函数能够记住并访问它的词法作用域，即使该函数在它的词法作用域之外被执行。这是 JavaScript 最核心的概念之一。</p>
+
+            <h2>词法作用域</h2>
+            <p>JavaScript 采用词法作用域（静态作用域），这意味着函数的作用域在<strong>函数定义时</strong>就已经确定，而不是在函数调用时。</p>
+
+            <h2>经典示例</h2>
+            <pre><code><span style="color:hsl(220,50%,65%)">function</span> <span style="color:hsl(44,16%,88%)">outer</span>() {
+  <span style="color:hsl(220,50%,65%)">const</span> message = <span style="color:hsl(150,50%,60%)">'Hello'</span>;
+
+  <span style="color:hsl(220,50%,65%)">function</span> <span style="color:hsl(44,16%,88%)">inner</span>() {
+    <span style="color:hsl(44,16%,88%)">console</span>.<span style="color:hsl(150,50%,60%)">log</span>(message);
+  }
+
+  <span style="color:hsl(220,50%,65%)">return</span> inner;
+}
+
+<span style="color:hsl(220,50%,65%)">const</span> fn = <span style="color:hsl(44,16%,88%)">outer</span>();
+<span style="color:hsl(44,16%,88%)">fn</span>(); <span style="color:hsl(40,5%,41%)">// 'Hello' — 闭包让 inner 记住了 message</span></code></pre>
+
+            <h2>常见用途</h2>
+            <ol>
+              <li>数据私有化（模块模式）</li>
+              <li>回调函数与事件处理</li>
+              <li>函数工厂与柯里化</li>
+              <li>循环中的异步问题</li>
+            </ol>
+
+            <h2>注意事项</h2>
+            <blockquote>闭包会持有对外部变量的引用，可能导致内存泄漏。在不需要时应及时解除引用。</blockquote>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- Tweaks panel -->
+<details class="tweaks-panel" open>
+  <summary>Tweaks</summary>
+  <label class="tweak-row">
+    <span>显示行号</span>
+    <input type="checkbox" checked>
+  </label>
+  <label class="tweak-row">
+    <span>代码高亮</span>
+    <input type="checkbox" checked>
+  </label>
+  <label class="tweak-row">
+    <span>同步滚动</span>
+    <input type="checkbox">
+  </label>
+  <label class="tweak-row">
+    <span>自动保存</span>
+    <input type="checkbox">
+  </label>
+</details>
+
+</body>
+</html>

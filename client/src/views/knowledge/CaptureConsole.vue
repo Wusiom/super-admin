@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import {
   fetchJobs,
   fetchJobsMetrics,
@@ -9,11 +10,11 @@ import {
   type JobsMetrics,
 } from '../../api/jobs';
 import {
-  captureUrl,
   fetchKnowledgeItem,
+  updateKnowledgeItem,
   deleteKnowledgeItem,
-  type CapturePayload,
 } from '../../api/knowledge';
+import MarkdownEditor from '../../components/MarkdownEditor.vue';
 
 // ---- Dashboard metrics ----
 const metrics = ref<JobsMetrics>({
@@ -42,14 +43,79 @@ const loading = ref(false);
 const filterStatus = ref('');
 const expandedId = ref<string | null>(null);
 
-let pollTimer: ReturnType<typeof setInterval> | null = null;
+// ---- SSE 实时推送 ----
+let eventSource: EventSource | null = null;
 
-function hasRunningOrPending() {
-  return jobs.value.some(
-    (j) => j.status === 'pending' || j.status === 'running',
+function connectSSE() {
+  if (eventSource) eventSource.close();
+
+  eventSource = new EventSource(
+    `/api/jobs/events?toolKey=knowledge-capture`,
   );
+
+  // 初始全量数据
+  eventSource.addEventListener('init', (e: MessageEvent) => {
+    try {
+      const data = JSON.parse(e.data);
+      metrics.value = data.metrics;
+      // 只在一页无筛选时替换列表（避免覆盖用户正在浏览的分页）
+      if (page.value === 1 && !filterStatus.value) {
+        jobs.value = data.jobs;
+        total.value = data.total;
+      }
+    } catch {
+      /* JSON 解析失败忽略 */
+    }
+  });
+
+  // 单个任务变更
+  eventSource.addEventListener('job-changed', (e: MessageEvent) => {
+    try {
+      const data = JSON.parse(e.data);
+      // 仅在首页无筛选时通过 SSE 更新列表，其余分页/筛选场景由 REST 负责
+      if (page.value !== 1 || filterStatus.value) return;
+
+      const changedJob = data.job as JobInfo;
+      const idx = jobs.value.findIndex((j) => j.id === changedJob.id);
+      if (idx >= 0) {
+        // 替换已有任务
+        jobs.value.splice(idx, 1, changedJob);
+      } else if (jobs.value.length < pageSize.value) {
+        // 新任务 — 插入并按创建时间降序排列
+        jobs.value.unshift(changedJob);
+        jobs.value.sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
+      }
+    } catch {
+      /* JSON 解析失败忽略 */
+    }
+  });
+
+  // 指标更新
+  eventSource.addEventListener('metrics', (e: MessageEvent) => {
+    try {
+      const data = JSON.parse(e.data);
+      metrics.value = data.metrics;
+    } catch {
+      /* JSON 解析失败忽略 */
+    }
+  });
+
+  eventSource.onerror = () => {
+    // EventSource 会自动重连，无需额外处理
+  };
 }
 
+function disconnectSSE() {
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
+}
+
+// ---- REST 请求（分页 / 筛选 / 手动刷新） ----
 async function loadJobs() {
   loading.value = true;
   try {
@@ -66,23 +132,6 @@ async function loadJobs() {
     ElMessage.error('加载任务列表失败');
   } finally {
     loading.value = false;
-  }
-}
-
-function startPolling() {
-  if (pollTimer) return;
-  pollTimer = setInterval(() => {
-    if (hasRunningOrPending()) {
-      loadJobs();
-      loadMetrics();
-    }
-  }, 3000);
-}
-
-function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
   }
 }
 
@@ -112,8 +161,7 @@ async function handleRetry(row: JobInfo) {
   try {
     await retryJob(row.id);
     ElMessage.success('已重新入队');
-    loadJobs();
-    loadMetrics();
+    // SSE 会推送状态变更，无需手动刷新
   } catch {
     ElMessage.error('重试失败');
   }
@@ -137,9 +185,20 @@ async function handleDeleteItem(row: JobInfo) {
 
 // ---- Markdown 查看 ----
 const markdownVisible = ref(false);
+const markdownItemId = ref(0);
 const markdownTitle = ref('');
 const markdownContent = ref('');
+const markdownOriginalContent = ref('');
 const markdownLoading = ref(false);
+const isMarkdownDirty = ref(false);
+
+const router = useRouter();
+
+watch(markdownContent, (val) => {
+  if (markdownVisible.value) {
+    isMarkdownDirty.value = val !== markdownOriginalContent.value;
+  }
+});
 
 async function viewMarkdown(row: JobInfo) {
   const itemId = row.diagnostics?.itemId;
@@ -147,85 +206,59 @@ async function viewMarkdown(row: JobInfo) {
     ElMessage.error('无法找到关联的知识条目');
     return;
   }
+  markdownItemId.value = itemId;
   markdownTitle.value =
     row.diagnostics?.itemTitle || row.diagnostics?.url || '';
   markdownVisible.value = true;
   markdownLoading.value = true;
+  isMarkdownDirty.value = false;
   try {
     const { data } = await fetchKnowledgeItem(itemId);
-    markdownContent.value = data.contentMarkdown || '(无内容)';
+    markdownContent.value = data.contentMarkdown || '';
+    markdownOriginalContent.value = markdownContent.value;
   } catch {
-    markdownContent.value = '(加载失败)';
+    markdownContent.value = '';
+    markdownOriginalContent.value = '';
   } finally {
     markdownLoading.value = false;
   }
 }
 
-// ---- 手动 URL 采集（隐藏的高级功能） ----
-const showManualCapture = ref(false);
-const manualUrl = ref('');
-const manualCookies = ref('');
-const manualLocalStorage = ref('');
-const manualLoading = ref(false);
+function handleDialogSave() {
+  updateKnowledgeItem(markdownItemId.value, markdownContent.value)
+    .then(() => {
+      markdownOriginalContent.value = markdownContent.value;
+      isMarkdownDirty.value = false;
+      ElMessage.success('保存成功');
+    })
+    .catch((e: any) => {
+      ElMessage.error(e?.response?.data?.message || '保存失败');
+    });
+}
 
-function validateJSON(val: string, expectArray: boolean): boolean {
-  if (!val.trim()) return true;
-  try {
-    const parsed = JSON.parse(val);
-    if (expectArray && !Array.isArray(parsed)) {
-      ElMessage.error('格式错误：需要 JSON 数组');
-      return false;
+function handleFullscreen() {
+  markdownVisible.value = false;
+  router.push({ name: 'MarkdownEdit', params: { id: markdownItemId.value } });
+}
+
+async function handleBeforeClose(done: () => void) {
+  if (isMarkdownDirty.value) {
+    try {
+      await ElMessageBox.confirm('有未保存的更改，确定关闭？', '提示', {
+        confirmButtonText: '确定关闭',
+        cancelButtonText: '继续编辑',
+        type: 'warning',
+      });
+      done();
+    } catch {
+      // user cancelled — stay open
     }
-    if (!expectArray && (Array.isArray(parsed) || typeof parsed !== 'object')) {
-      ElMessage.error('格式错误：需要 JSON 对象');
-      return false;
-    }
-    return true;
-  } catch {
-    ElMessage.error('格式错误：不是合法的 JSON');
-    return false;
+  } else {
+    done();
   }
 }
 
-async function handleManualCapture() {
-  if (!manualUrl.value.trim()) {
-    ElMessage.warning('请输入 URL');
-    return;
-  }
-  try {
-    new URL(manualUrl.value);
-  } catch {
-    ElMessage.error('URL 格式不正确，请以 http:// 或 https:// 开头');
-    return;
-  }
-
-  if (!validateJSON(manualCookies.value, true)) return;
-  if (!validateJSON(manualLocalStorage.value, false)) return;
-
-  manualLoading.value = true;
-  try {
-    const payload: CapturePayload = { url: manualUrl.value.trim() };
-    if (manualCookies.value.trim())
-      payload.cookies = manualCookies.value.trim();
-    if (manualLocalStorage.value.trim())
-      payload.localStorage = manualLocalStorage.value.trim();
-    const { data } = await captureUrl(payload);
-    ElMessage.success(`采集任务已提交，任务 ID：${data.jobId}`);
-    manualUrl.value = '';
-    manualCookies.value = '';
-    manualLocalStorage.value = '';
-    showManualCapture.value = false;
-    loadJobs();
-    loadMetrics();
-  } catch (e: any) {
-    const msg = e.response?.data?.message || e.message || '提交失败';
-    ElMessage.error(msg);
-  } finally {
-    manualLoading.value = false;
-  }
-}
-
-// ---- Helpers ----
+// ---- Markdown 查看 ----
 function statusPillClass(status: string): string {
   const map: Record<string, string> = {
     pending: 'pill pill-pending',
@@ -286,12 +319,15 @@ const expandedJob = computed(() => {
 });
 
 onMounted(() => {
+  connectSSE();
+  // 同时走 REST 做初始加载，确保 SSE 连接建立前 UI 已有数据
   loadMetrics();
   loadJobs();
-  startPolling();
 });
 
-onUnmounted(stopPolling);
+onUnmounted(() => {
+  disconnectSSE();
+});
 </script>
 
 <template>
@@ -784,29 +820,148 @@ onUnmounted(stopPolling);
       </div>
     </div> -->
 
-    <!-- Markdown 查看弹窗 -->
+    <!-- Markdown 查看/编辑弹窗 -->
     <el-dialog
       v-model="markdownVisible"
-      :title="markdownTitle"
-      width="800px"
-      top="5vh"
+      width="900px"
+      top="3vh"
+      :before-close="handleBeforeClose"
     >
+      <template #header>
+        <div class="dialog-header">
+          <span class="dialog-title">{{ markdownTitle }}</span>
+          <div class="dialog-header-actions">
+            <button class="btn-icon" @click="handleFullscreen">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
+                <rect x="2" y="2" width="5" height="5" rx="0.5" />
+                <rect x="9" y="2" width="5" height="5" rx="0.5" />
+                <rect x="2" y="9" width="5" height="5" rx="0.5" />
+                <rect x="9" y="9" width="5" height="5" rx="0.5" />
+              </svg>
+              全屏
+            </button>
+          </div>
+        </div>
+      </template>
       <div
         v-if="markdownLoading"
-        class="text-center text-[hsl(44,7%,47%)] py-10"
+        class="flex items-center justify-center py-12 text-[var(--text-muted)] text-sm"
       >
         加载中...
       </div>
-      <pre
+      <MarkdownEditor
         v-else
-        class="whitespace-pre-wrap text-[13px] leading-relaxed max-h-[70vh] overflow-auto bg-[var(--surface-1)] p-5 rounded-lg text-[var(--text-primary)]"
-        >{{ markdownContent }}</pre
-      >
+        v-model="markdownContent"
+        height="55vh"
+        @save="handleDialogSave"
+      />
+      <template #footer>
+        <div class="dialog-footer-bar">
+          <div class="footer-meta">
+            <span v-if="isMarkdownDirty" class="dirty-dot" />
+            <span class="text-[var(--text-muted)] text-[11px]">
+              {{ isMarkdownDirty ? '有未保存的更改' : '内容已同步' }}
+            </span>
+          </div>
+          <div class="kbd-hint">
+            <span class="kbd">Ctrl</span> + <span class="kbd">S</span> 保存
+          </div>
+        </div>
+      </template>
     </el-dialog>
   </div>
 </template>
 
 <style scoped>
+/* ---- Dialog header ---- */
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.dialog-title {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.dialog-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: system-ui, sans-serif;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  cursor: pointer;
+  transition: all 150ms ease-out;
+  white-space: nowrap;
+}
+
+.btn-icon:hover {
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* ---- Dialog footer ---- */
+.dialog-footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.footer-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dirty-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-gold);
+  flex-shrink: 0;
+}
+
+.kbd-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: system-ui, sans-serif;
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 10px;
+  background: var(--surface-3);
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  color: var(--text-secondary);
+  min-width: 20px;
+}
+
 /* ---- Stat cards (matching prototype .stat-card) ---- */
 .stat-card {
   background: var(--surface-2);

@@ -112,16 +112,17 @@ client/src/
   api/jobs.ts                 — 任务相关 API
   stores/auth.ts              — Pinia 认证状态（token, user, login/logout）
   stores/tools.ts             — Pinia 工具列表状态（动态加载）
-  router/index.ts             — 路由：/login, / → DefaultLayout (jobs/knowledge/capture|list/settings)
+  router/index.ts             — 路由：/login, / → DefaultLayout (jobs|settings), /knowledge/edit/:id
   layouts/DefaultLayout.vue   — 含动态侧边栏（从 tools store 获取菜单项）
   views/
     login/index.vue
-    knowledge/CapturePage.vue — 采集页（URL + Cookie + localStorage 输入）
-    knowledge/KnowledgeList.vue — 知识列表（el-table + 分页 + Markdown 弹窗 + 删除）
-    jobs/JobCenter.vue        — 任务中心（筛选 + 状态着色 + 重试 + 3s 轮询）
+    knowledge/CapturePage.vue     — 采集页（URL + Cookie + localStorage 输入）
+    knowledge/CaptureConsole.vue  — 知识采集控制台（仪表盘 + 任务列表 + SSE 实时推送 + Markdown 分屏编辑弹窗）
+    knowledge/MarkdownEditPage.vue — 全屏 Markdown 编辑页（/knowledge/edit/:id）
     settings/SettingsPage.vue
     NotFound.vue
-  components/                 — 公共组件
+  components/
+    MarkdownEditor.vue        — 分屏 Markdown 编辑器（md-editor-v3 封装，暗金主题）
 ```
 
 **前端代理**：Vite 开发服务器将 `/api` 代理到 `http://localhost:3000`。

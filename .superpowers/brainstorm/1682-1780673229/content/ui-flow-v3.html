@@ -1,0 +1,127 @@
+<h2>UI 结构 v3 — 最终版</h2>
+<p class="subtitle">保持现有触发方式（点击行 → dialog），替换内容为分屏编辑器</p>
+
+<h3>📋 知识列表页（KnowledgeList.vue）</h3>
+<pre style="background:#0d1117;color:#c9d1d9;padding:16px;border-radius:8px;font-size:12px;line-height:1.5;overflow:auto;">
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  知识列表                                         共 42 条            │
+  ├──────────────────────────────────────────────────────────────────────┤
+  │  标题               │ URL                  │ 来源  │ 时间     │ 操作  │
+  ├──────────────────────────────────────────────────────────────────────┤
+  │  深入理解 JS 闭包    │ https://xxx.com/...  │ 掘金  │ 06-05   │ 删除  │ ← 点击行
+  │  React 18 并发模式   │ https://yyy.com/...  │ 知乎  │ 06-04   │ 删除  │
+  │  TypeScript 高级类型  │ https://zzz.com/...  │ CSDN  │ 06-03   │ 删除  │
+  └──────────────────────────────────────────────────────────────────────┘
+                                                ◀ 1 2 3 ... 5 ▶
+</pre>
+
+<h3 style="margin-top:20px;">弹窗（点击行 → dialog，替换原来的 pre）</h3>
+<pre style="background:#0d1117;color:#c9d1d9;padding:16px;border-radius:8px;font-size:12px;line-height:1.5;overflow:auto;">
+  ┌──────────────────────────────────────────────────────────────┐
+  │  深入理解 JavaScript 闭包                          [⛶ 全屏] ✕ │
+  ├──────────────────────────────────────────────────────────────┤
+  │  ┌─ 编辑（CodeMirror 6）──┐ ┌─ 预览（渲染 + 高亮）─────────┐ │
+  │  │                        │ │                              │ │
+  │  │ # 深入理解 JS 闭包      │ │ 深入理解 JS 闭包              │ │
+  │  │                        │ │                              │ │
+  │  │ ## 什么是闭包？         │ │ 什么是闭包？                  │ │
+  │  │                        │ │                              │ │
+  │  │ 闭包是指一个函数能够...  │ │ 闭包是指一个函数能够记住...   │ │
+  │  │                        │ │                              │ │
+  │  │ ```js                  │ │ ┌────────────────────┐       │ │
+  │  │ function outer() {     │ │ │ function outer() { │       │ │
+  │  │   const name=...       │ │ │   const name=...   │       │ │
+  │  │ }                      │ │ │ }                  │       │ │
+  │  │ ```                    │ │ └────────────────────┘       │ │
+  │  └────────────────────────┘ └──────────────────────────────┘ │
+  │                                                              │
+  │  最后保存：06-05 14:30                             Ctrl+S 保存│
+  └──────────────────────────────────────────────────────────────┘
+</pre>
+
+<h3 style="margin-top:20px;">全屏页（[全屏] → /knowledge/edit/:id）</h3>
+<pre style="background:#0d1117;color:#c9d1d9;padding:16px;border-radius:8px;font-size:12px;line-height:1.5;overflow:auto;">
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │ ← 返回列表    深入理解 JavaScript 闭包                    Ctrl+S 保存 │
+  ├──────────────────────────────────────────────────────────────────────┤
+  │  ┌─ 编辑 ─────────────────────┐ ┌─ 预览 ───────────────────────────┐ │
+  │  │                            │ │                                  │ │
+  │  │       CodeMirror 6         │ │    Markdown 渲染 + 代码高亮       │ │
+  │  │                            │ │                                  │ │
+  │  │                            │ │                                  │ │
+  │  └────────────────────────────┘ └──────────────────────────────────┘ │
+  └──────────────────────────────────────────────────────────────────────┘
+</pre>
+
+<h3 style="margin-top:24px;">🔄 流程（改动最小化）</h3>
+<pre style="background:#0d1117;color:#c9d1d9;padding:16px;border-radius:8px;font-size:12px;line-height:1.5;overflow:auto;">
+  点击行 (现有行为，不改)
+      │
+      ▼
+  发起 GET /items/:id (现有 API，不改)
+      │
+      ▼
+  Dialog 弹窗 (现有)
+      │
+      │  替换：pre → MarkdownEditor (始终分屏)
+      │  新增：[全屏] 按钮 → /knowledge/edit/:id
+      │  新增：Ctrl+S → PUT /items/:id
+      │
+      ├──── [全屏] ──→ MarkdownEditPage (新页面)
+      │                   │
+      │                   └── Ctrl+S → PUT /items/:id
+      │
+      └── Ctrl+S → PUT /items/:id (新 API)
+</pre>
+
+<h3 style="margin-top:24px;">📦 改动清单</h3>
+<table style="width:100%;border-collapse:collapse;font-size:13px;">
+  <tr style="background:#161b22;">
+    <th style="border:1px solid #30363d;padding:6px 12px;text-align:left;">文件</th>
+    <th style="border:1px solid #30363d;padding:6px 12px;text-align:left;">改动</th>
+    <th style="border:1px solid #30363d;padding:6px 12px;text-align:left;">说明</th>
+  </tr>
+  <tr>
+    <td style="border:1px solid #30363d;padding:6px 12px;font-family:monospace;font-size:12px;">client/src/components/MarkdownEditor.vue</td>
+    <td style="border:1px solid #30363d;padding:6px 12px;"><span class="label" style="background:#238636;">新增</span></td>
+    <td style="border:1px solid #30363d;padding:6px 12px;">封装 md-editor-v3，始终分屏</td>
+  </tr>
+  <tr style="background:#161b22;">
+    <td style="border:1px solid #30363d;padding:6px 12px;font-family:monospace;font-size:12px;">client/src/views/knowledge/KnowledgeList.vue</td>
+    <td style="border:1px solid #30363d;padding:6px 12px;"><span class="label" style="background:#c9a050;">修改</span></td>
+    <td style="border:1px solid #30363d;padding:6px 12px;">dialog: pre → MarkdownEditor + [全屏] 按钮</td>
+  </tr>
+  <tr>
+    <td style="border:1px solid #30363d;padding:6px 12px;font-family:monospace;font-size:12px;">client/src/views/knowledge/MarkdownEditPage.vue</td>
+    <td style="border:1px solid #30363d;padding:6px 12px;"><span class="label" style="background:#238636;">新增</span></td>
+    <td style="border:1px solid #30363d;padding:6px 12px;">全屏编辑页面</td>
+  </tr>
+  <tr style="background:#161b22;">
+    <td style="border:1px solid #30363d;padding:6px 12px;font-family:monospace;font-size:12px;">client/src/router/index.ts</td>
+    <td style="border:1px solid #30363d;padding:6px 12px;"><span class="label" style="background:#c9a050;">修改</span></td>
+    <td style="border:1px solid #30363d;padding:6px 12px;">新增 /knowledge/edit/:id 路由</td>
+  </tr>
+  <tr>
+    <td style="border:1px solid #30363d;padding:6px 12px;font-family:monospace;font-size:12px;">client/src/api/knowledge.ts</td>
+    <td style="border:1px solid #30363d;padding:6px 12px;"><span class="label" style="background:#c9a050;">修改</span></td>
+    <td style="border:1px solid #30363d;padding:6px 12px;">新增 updateKnowledgeItem()</td>
+  </tr>
+  <tr style="background:#161b22;">
+    <td style="border:1px solid #30363d;padding:6px 12px;font-family:monospace;font-size:12px;">server/.../knowledge-capture.controller.ts</td>
+    <td style="border:1px solid #30363d;padding:6px 12px;"><span class="label" style="background:#c9a050;">修改</span></td>
+    <td style="border:1px solid #30363d;padding:6px 12px;">新增 PUT /items/:id</td>
+  </tr>
+</table>
+
+<h3 style="margin-top:24px;">🔑 关键在于：KnowledgeList.vue 里只改 dialog 的内容部分</h3>
+<pre style="background:#0d1117;color:#c9d1d9;padding:16px;border-radius:8px;font-size:12px;line-height:1.5;overflow:auto;">
+  &lt;!-- 原来 --&gt;
+  &lt;pre ...&gt;{{ currentMarkdown }}&lt;/pre&gt;
+
+  &lt;!-- 改为 --&gt;
+  &lt;MarkdownEditor
+    v-model="currentMarkdown"
+    height="60vh"
+    @save="handleSave"
+  /&gt;
+</pre>

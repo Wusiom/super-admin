@@ -18,12 +18,6 @@ const router = createRouter({
           redirect: '/jobs',
         },
         {
-          path: 'knowledge/list',
-          name: 'KnowledgeList',
-          component: () => import('../views/knowledge/KnowledgeList.vue'),
-          meta: { title: '知识列表' },
-        },
-        {
           path: 'jobs',
           name: 'CaptureConsole',
           component: () => import('../views/knowledge/CaptureConsole.vue'),
@@ -40,6 +34,12 @@ const router = createRouter({
           redirect: '/jobs',
         },
       ],
+    },
+    {
+      path: '/knowledge/edit/:id',
+      name: 'MarkdownEdit',
+      component: () => import('../views/knowledge/MarkdownEditPage.vue'),
+      meta: { title: 'Markdown 编辑' },
     },
     {
       path: '/:pathMatch(.*)*',

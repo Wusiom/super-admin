@@ -1,0 +1,66 @@
+<h2>当前状态 vs 改造目标</h2>
+<p class="subtitle">知识列表 → 点击行 → 查看内容。现在用 &lt;pre&gt; 展示 Markdown 源码，改造为分屏编辑器</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">❌ 当前：纯文本 pre 标签</div>
+    <div class="mockup-body" style="padding:16px;font-family:monospace;font-size:12px;line-height:1.6;background:#1a1a2e;color:#a0a0b0;border-radius:6px;white-space:pre-wrap;">
+# 深入理解 JavaScript 闭包
+
+## 什么是闭包？
+
+闭包是指一个函数能够记住并访问它的词法作用域，
+即使这个函数在它的词法作用域之外执行。
+
+```js
+function outer() {
+  const name = "Closure";
+  return function inner() {
+    console.log(name);
+  };
+}
+```
+
+## 闭包的实际应用
+
+1. **数据私有化** — 模拟私有变量
+2. **函数工厂** — 创建特定功能的函数
+3. **事件处理** — 保存状态
+
+> 闭包是 JavaScript 中最强大的特性之一
+
+阅读体验差：标题、代码块、引用、列表
+全部混在一起，毫无视觉层次可言。</div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">✅ 目标：分屏 Markdown 编辑器</div>
+    <div class="mockup-body" style="padding:0;display:flex;height:350px;border-radius:6px;overflow:hidden;">
+      <div style="width:50%;padding:12px;font-family:monospace;font-size:12px;background:#1a1a2e;color:#e0e0e0;border-right:1px solid #333;">
+        <div style="color:#888;margin-bottom:8px;font-size:10px;text-transform:uppercase;">📝 编辑</div>
+        # 深入理解 JavaScript 闭包
+
+## 什么是闭包？
+
+闭包是指一个函数能够记住并访问...
+
+```js
+function outer() {
+```
+
+---
+&gt; 闭包是 JavaScript 中最强大的特性之一
+      </div>
+      <div style="width:50%;padding:12px;background:#fff;color:#1a1a2e;overflow:auto;">
+        <div style="color:#aaa;margin-bottom:8px;font-size:10px;text-transform:uppercase;">👁 预览</div>
+        <h1 style="font-size:20px;font-weight:700;margin:0 0 8px;">深入理解 JavaScript 闭包</h1>
+        <h2 style="font-size:15px;font-weight:600;margin:0 0 6px;">什么是闭包？</h2>
+        <p style="font-size:13px;color:#555;margin:0 0 8px;">闭包是指一个函数能够记住并访问它的词法作用域，即使这个函数在它的词法作用域之外执行。</p>
+        <pre style="background:#f5f5f5;padding:8px;border-radius:4px;font-size:12px;"><code>function outer() {
+  const name = "Closure";
+  ...
+}</code></pre>
+        <blockquote style="border-left:3px solid #c9a050;padding-left:12px;color:#666;margin:8px 0;">闭包是 JavaScript 中最强大的特性之一</blockquote>
+      </div>
+    </div>
+  </div>
+</div>

@@ -37,6 +37,10 @@ export function fetchKnowledgeItem(id: number) {
   return api.get<KnowledgeItem>(`/tools/knowledge-capture/items/${id}`)
 }
 
+export function updateKnowledgeItem(id: number, contentMarkdown: string) {
+  return api.put<KnowledgeItem>(`/tools/knowledge-capture/items/${id}`, { contentMarkdown })
+}
+
 export function deleteKnowledgeItem(id: number) {
   return api.delete(`/tools/knowledge-capture/items/${id}`)
 }
