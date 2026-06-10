@@ -23,7 +23,7 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - DATABASE_URL=file:/app/data/dev.db
+      - DATABASE_URL=${DATABASE_URL:-file:/app/data/prod.db}
     volumes:
       - server-data:/app/data
     ports:
