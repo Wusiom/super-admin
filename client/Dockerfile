@@ -4,7 +4,7 @@ WORKDIR /app
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json .npmrc ./
 COPY client/package.json client/
 COPY server/package.json server/
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --prefer-offline
 COPY client/ client/
 RUN pnpm --filter client build
 
