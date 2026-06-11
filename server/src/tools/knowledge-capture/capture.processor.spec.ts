@@ -1,11 +1,4 @@
 import { captureProcessor } from './capture.processor';
-import { chromium } from 'playwright';
-
-jest.mock('playwright', () => ({
-  chromium: {
-    launch: jest.fn(),
-  },
-}));
 
 jest.mock('jsdom', () => ({
   JSDOM: jest.fn().mockImplementation((html: string) => ({
@@ -51,7 +44,7 @@ describe('captureProcessor snapshot capture', () => {
     mockCreate.mockResolvedValue({ id: 42 });
   });
 
-  it('parses pageHtml snapshots without launching Playwright', async () => {
+  it('parses pageHtml snapshots directly without launching a browser', async () => {
     const result = await captureProcessor({
       data: {
         url: 'https://www.yuque.com/example/doc',
@@ -72,7 +65,6 @@ describe('captureProcessor snapshot capture', () => {
       },
     } as any);
 
-    expect(chromium.launch).not.toHaveBeenCalled();
     expect(mockCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         title: 'Real Yuque Doc',
@@ -140,14 +132,17 @@ describe('captureProcessor snapshot capture', () => {
   });
 
   it('rejects empty extracted content with EMPTY_CONTENT error type', async () => {
-    // The JSDOM mock returns the raw HTML string as body.textContent.
-    // Use a very short input so Readability produces <100 chars of content.
+    const { Readability } = require('@mozilla/readability');
+    (Readability as jest.Mock).mockImplementationOnce(() => ({
+      parse: jest.fn(() => ({ title: 'Empty', content: 'short' })),
+    }));
+
     await expect(
       captureProcessor({
         data: {
           url: 'https://example.com/empty',
           jobRecordId: 11,
-          pageHtml: '<html></html>',
+          pageHtml: '<html><head><title>Empty Page</title></head><body><nav>Just navigation links here</nav></body></html>',
         },
       } as any),
     ).rejects.toMatchObject({
@@ -158,7 +153,7 @@ describe('captureProcessor snapshot capture', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 
-  it('fails when extension capture reaches the processor without a snapshot', async () => {
+  it('fails when processor receives a job without a page snapshot', async () => {
     await expect(
       captureProcessor({
         data: {
@@ -170,7 +165,5 @@ describe('captureProcessor snapshot capture', () => {
       message: 'Page snapshot was not received from the extension',
       jobErrorType: 'NO_SNAPSHOT',
     });
-
-    expect(chromium.launch).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,4 @@
 import { Job } from 'bullmq';
-import { chromium } from 'playwright';
 import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
 import TurndownService from 'turndown';
@@ -8,59 +7,83 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 const turndown = new TurndownService();
 
+// 拦截页面特征 — 验证码、滑块、403 等
+const BLOCKED_PATTERNS: RegExp[] = [
+  /请按住滑块[，,]\s*拖动到最右边/,
+  /滑块验证/,
+  /人机验证/,
+  /请完成安全验证/,
+  /verify you are a human/i,
+  /captcha/i,
+  /access denied/i,
+  /403\s*forbidden/i,
+];
+
+// 付费/登录墙特征
+const LOCKED_PATTERNS: RegExp[] = [
+  /订阅并查看全文/,
+  /订阅后可查看/,
+  /付费阅读/,
+  /购买后可阅读/,
+  /subscribe to read/i,
+  /subscribe to view/i,
+  /unlock this article/i,
+  /this content is for subscribers/i,
+  /premium content/i,
+  /members only/i,
+  /登录后(即可)?(阅读|查看|浏览)/,
+  /请先登录/,
+  /sign in to (continue|read|view)/i,
+];
+
+function detectPageType(html: string, title: string): 'blocked' | 'locked' | 'ok' {
+  const text = html + ' ' + title;
+
+  for (const pattern of BLOCKED_PATTERNS) {
+    if (pattern.test(text)) return 'blocked';
+  }
+
+  for (const pattern of LOCKED_PATTERNS) {
+    if (pattern.test(text)) return 'locked';
+  }
+
+  return 'ok';
+}
+
+/**
+ * 从 Chrome 扩展发来的 pageHtml 快照中提取正文，转为 Markdown 存入 KnowledgeItem。
+ * 不再启动 Playwright — 扩展已在用户浏览器中完成渲染，后端只做提取。
+ */
 export async function captureProcessor(job: Job) {
-  const { url, jobRecordId, cookies, localStorage: lsData } = job.data;
+  const { url, jobRecordId, pageHtml } = job.data;
 
-  let browser;
+  if (!pageHtml || typeof pageHtml !== 'string' || pageHtml.trim().length < 100) {
+    throw Object.assign(
+      new Error('Page snapshot was not received from the extension'),
+      { jobErrorType: 'NO_SNAPSHOT' },
+    );
+  }
+
   try {
-    browser = await chromium.launch({
-      headless: true,
-      args: ['--disable-dev-shm-usage'],
-    });
+    const doc = new JSDOM(pageHtml, { url });
+    const title = doc.window.document.title || '';
 
-    const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    });
-
-    // 注入 cookie（Playwright 格式：[{name, value, domain, path?}]）
-    if (cookies && Array.isArray(cookies) && cookies.length > 0) {
-      await context.addCookies(cookies);
+    const pageType = detectPageType(pageHtml, title);
+    if (pageType === 'blocked') {
+      throw Object.assign(
+        new Error('Captured page is a login or verification page'),
+        { jobErrorType: 'BLOCKED' },
+      );
+    }
+    if (pageType === 'locked') {
+      throw Object.assign(
+        new Error('Page requires authentication or subscription to view full content'),
+        { jobErrorType: 'LOCKED_CONTENT' },
+      );
     }
 
-    const page = await context.newPage();
-
-    // 先导航到目标 URL 建立 origin，再注入 localStorage，然后刷新
-    try {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    } catch (err: any) {
-      await browser.close();
-      if (err.message?.includes('timeout') || err.message?.includes('Timeout')) {
-        throw Object.assign(new Error('Page load timeout'), { jobErrorType: 'TIMEOUT' });
-      }
-      throw Object.assign(new Error(`Network error: ${err.message}`), { jobErrorType: 'NETWORK_ERROR' });
-    }
-
-    // 在已建立 origin 的页面注入 localStorage，然后刷新让 SPA 重新读取
-    if (lsData && typeof lsData === 'object' && Object.keys(lsData).length > 0) {
-      await page.evaluate((items: Record<string, string>) => {
-        for (const [key, value] of Object.entries(items)) {
-          localStorage.setItem(key, value);
-        }
-      }, lsData);
-      // 重新加载，等 SPA 完成所有 API 请求后抓取
-      await page.reload({ waitUntil: 'networkidle', timeout: 30000 });
-    } else {
-      await page.waitForLoadState('networkidle', { timeout: 30000 });
-    }
-    // 额外等待，确保 Vue 渲染完成
-    await page.waitForTimeout(2000);
-
-    const html = await page.content();
-    const doc = new JSDOM(html, { url });
     const reader = new Readability(doc.window.document);
     const article = reader.parse();
-
-    await browser.close();
 
     if (!article || !article.content || article.content.trim().length < 100) {
       throw Object.assign(
@@ -84,7 +107,6 @@ export async function captureProcessor(job: Job) {
 
     return { itemId: item.id };
   } catch (err: any) {
-    if (browser) await browser.close().catch(() => {});
     if (!err.jobErrorType) {
       throw Object.assign(err, { jobErrorType: 'EXTRACTION_FAILED' });
     }

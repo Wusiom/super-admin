@@ -51,7 +51,7 @@ docker compose up -d --build       # 重新构建并启动
 
 ### 技术栈
 
-- **后端**: NestJS + Prisma + SQLite + BullMQ + Redis + Playwright (Chromium)
+- **后端**: NestJS + Prisma + SQLite + BullMQ + Redis
 - **前端**: Vue 3 + Element Plus + Tailwind CSS v4 + Vite + Pinia + Vue Router
 - **扩展**: Chrome Extension (Manifest V3) — 一键采集 Cookie + localStorage
 - **包管理**: pnpm workspace（`server/` + `client/`）
@@ -86,7 +86,7 @@ server/src/
     manifest.ts               — 工具声明（key, name, icon, route, processors）
     knowledge-capture.module.ts — OnModuleInit 时 self-register 到 ToolRegistry
     knowledge-capture.controller.ts — POST capture / GET items / DELETE items
-    capture.processor.ts      — Playwright 浏览器 + Readability + Turndown 内容提取
+    capture.processor.ts      — JSDOM 页面快照解析 + Readability + Turndown 内容提取
 ```
 
 **核心设计模式 — 工具注册**：

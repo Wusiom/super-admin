@@ -48,7 +48,7 @@ export class BullMqService implements OnModuleDestroy {
           const result = await config.handler(job);
           return result;
         } catch (err: any) {
-          const nonRetriable = ['EXTRACTION_FAILED', 'BLOCKED', 'EMPTY_CONTENT'];
+          const nonRetriable = ['EXTRACTION_FAILED', 'BLOCKED', 'EMPTY_CONTENT', 'LOCKED_CONTENT', 'NO_SNAPSHOT'];
           if (nonRetriable.includes(err.jobErrorType)) {
             throw new UnrecoverableError(err.message);
           }

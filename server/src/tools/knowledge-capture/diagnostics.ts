@@ -39,24 +39,18 @@ function deriveSuggestion(
   }
 
   if (!hasPageHtml) {
-    return '页面快照未收到，系统将使用 Playwright 回退采集。请确认 Chrome 扩展已正确安装并刷新页面后重试。';
+    return '页面快照未收到。请确认 Chrome 扩展已正确安装并刷新页面后重试。';
   }
 
   switch (errorType) {
     case 'LOCKED_CONTENT':
       return '需要登录或订阅后才能查看全文。请先在浏览器中登录目标网站，再使用扩展采集。';
-    case 'NETWORK_ERROR':
-      return '网络连接失败，请检查目标网站是否可访问后重试。';
-    case 'TIMEOUT':
-      return '页面加载超时，请检查网络连接后重试。';
     case 'EXTRACTION_FAILED':
       return '正文识别失败，请确认页面包含可读的文章内容。';
     case 'BLOCKED':
-      return '目标网站屏蔽了自动访问，请使用 Chrome 扩展直接从浏览器采集。';
+      return '目标页面触发了验证码或人机验证，请先在浏览器中完成验证后再采集。';
     case 'EMPTY_CONTENT':
       return '提取的内容为空或仅包含导航文本，请确认页面包含正文内容。';
-    case 'BROWSER_CRASH':
-      return '浏览器进程异常，系统将自动重试。如多次失败请联系管理员。';
     default:
       return '采集失败，请重试或查看错误详情。';
   }
@@ -69,12 +63,9 @@ function extractErrorType(jobError: string | null, input: Record<string, any> | 
 
   const typeMap: Array<[RegExp, string]> = [
     [/LOCKED_CONTENT/i, 'LOCKED_CONTENT'],
-    [/NETWORK_ERROR/i, 'NETWORK_ERROR'],
-    [/timeout/i, 'TIMEOUT'],
     [/EXTRACTION_FAILED/i, 'EXTRACTION_FAILED'],
     [/BLOCKED/i, 'BLOCKED'],
     [/EMPTY_CONTENT/i, 'EMPTY_CONTENT'],
-    [/BROWSER_CRASH/i, 'BROWSER_CRASH'],
   ];
 
   for (const [pattern, type] of typeMap) {
@@ -141,12 +132,9 @@ export function deriveJobDiagnostics(
  */
 export function diagnosticsSummary(d: TaskDiagnostics): string {
   if (d.errorType === 'LOCKED_CONTENT') return '付费/登录内容';
-  if (d.errorType === 'NETWORK_ERROR') return '网络错误';
-  if (d.errorType === 'TIMEOUT') return '页面超时';
   if (d.errorType === 'BLOCKED') return '被目标屏蔽';
   if (d.errorType === 'EXTRACTION_FAILED') return '正文识别失败';
   if (d.errorType === 'EMPTY_CONTENT') return '内容为空';
-  if (d.errorType === 'BROWSER_CRASH') return '浏览器崩溃';
   if (d.error) return '采集失败';
   if (!d.hasPageHtml && d.cookieCount === 0 && d.localStorageKeyCount === 0)
     return '未收到快照';
