@@ -57,25 +57,19 @@ describe('deriveJobDiagnostics', () => {
     expect(d.suggestion).toContain('登录');
   });
 
-  it('derives diagnostics for successful capture via Playwright fallback', () => {
+  it('derives diagnostics for failed capture with no pageHtml', () => {
     const d = deriveJobDiagnostics(
       job(
         { url: 'https://public.example.com', pageHtml: undefined, cookies: [{ name: 's' }], localStorage: { token: 'x' } },
-        { itemId: 5 },
+        undefined,
+        'Page snapshot was not received from the extension',
       ),
-      {
-        id: 5,
-        title: 'Public Article',
-        contentMarkdown: 'content',
-        contentHtml: '<p>content</p>',
-        capturedAt: new Date('2026-06-05T12:00:00Z'),
-      } as any,
     );
 
     expect(d.hasPageHtml).toBe(false);
     expect(d.cookieCount).toBe(1);
     expect(d.localStorageKeyCount).toBe(1);
-    expect(d.itemId).toBe(5);
+    expect(d.suggestion).toContain('快照未收到');
   });
 
   it('does not expose raw pageHtml or credential values in diagnostics', () => {
@@ -115,10 +109,6 @@ describe('diagnosticsSummary', () => {
 
   it('returns "付费/登录内容" for LOCKED_CONTENT', () => {
     expect(diagnosticsSummary({ ...base, errorType: 'LOCKED_CONTENT', error: 'err' })).toBe('付费/登录内容');
-  });
-
-  it('returns "网络错误" for NETWORK_ERROR', () => {
-    expect(diagnosticsSummary({ ...base, errorType: 'NETWORK_ERROR', error: 'err' })).toBe('网络错误');
   });
 
   it('returns "正文识别失败" for EXTRACTION_FAILED', () => {

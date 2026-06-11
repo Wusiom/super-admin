@@ -52,7 +52,7 @@ docker compose up -d --build       # 重新构建并启动
 
 ### 技术栈
 
-- **后端**: NestJS + Prisma + SQLite + BullMQ + Redis + Playwright (Chromium)
+- **后端**: NestJS + Prisma + SQLite + BullMQ + Redis
 - **前端**: Vue 3 + Element Plus + Tailwind CSS v4 + Vite + Pinia + Vue Router
 - **扩展**: Chrome Extension (Manifest V3) — 一键采集 Cookie + localStorage
 - **包管理**: pnpm workspace（`server/` + `client/`）

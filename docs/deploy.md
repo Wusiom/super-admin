@@ -2,7 +2,7 @@
 
 ## 前置要求
 
-- VPS / 云服务器（推荐 2 核 4GB 以上，因为 Playwright Chromium 需要约 500MB 内存）
+- VPS / 云服务器（推荐 1 核 1GB 以上）
 - 操作系统：Ubuntu 22.04+ / Debian 12+
 - 域名（可选，但推荐配置 HTTPS）
 
@@ -216,6 +216,5 @@ docker compose logs -f --tail=100 client
 | 容器未启动 | `docker compose ps -a` |
 | 数据库错误 | `docker compose logs server \| grep -i error` |
 | Redis 连接失败 | `docker compose exec redis redis-cli PING` |
-| Playwright 崩溃 | `docker compose logs server \| grep -i browser` |
-| 内存不足 | Playwright Chromium 需约 500MB，考虑增加 swap：`fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile` |
+| 内存不足 | 考虑增加 swap：`fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile` |
 | 扩展无法连接 | 检查 `externally_connectable.matches` 是否包含当前前端地址；检查 CORS 配置 |
