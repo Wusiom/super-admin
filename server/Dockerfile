@@ -1,5 +1,10 @@
 FROM node:22-slim AS base
 
+# 使用阿里云 Debian 镜像，加速国内 VPS 下载
+RUN sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null; \
+    sed -i 's|http://deb.debian.org|http://mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null; \
+    echo "APT mirror switched"
+
 RUN apt-get update && apt-get install -y \
   libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
   libdbus-1-3 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
