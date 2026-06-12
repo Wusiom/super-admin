@@ -9,13 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USERNAME }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          command_timeout: 30m
-          script: |
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=60 -o ServerAliveInterval=30 -i ~/.ssh/deploy_key ${{ secrets.VPS_USERNAME }}@${{ secrets.VPS_HOST }} '
             set -e
             cd /opt/super-admin
             git fetch origin main
@@ -23,3 +21,4 @@ jobs:
             docker compose up -d --build
             docker image prune -f
             echo "✅ Deploy done — $(date)"
+          '
