@@ -93,6 +93,7 @@ describe('KnowledgeCaptureController capture', () => {
       job: {
         create: jest.fn(),
         update: jest.fn(),
+        delete: jest.fn(),
       },
     };
     const controller = new KnowledgeCaptureController(prisma as any, {} as any, mockJobEvents());
@@ -112,6 +113,7 @@ describe('KnowledgeCaptureController capture', () => {
       job: {
         create: jest.fn(),
         update: jest.fn(),
+        delete: jest.fn(),
       },
     };
     const controller = new KnowledgeCaptureController(prisma as any, {} as any, mockJobEvents());
@@ -162,6 +164,7 @@ describe('KnowledgeCaptureController updateItem', () => {
       job: {
         create: jest.fn(),
         update: jest.fn(),
+        delete: jest.fn(),
       },
     };
     controller = new KnowledgeCaptureController(prisma, {} as any, mockJobEvents());
@@ -198,5 +201,38 @@ describe('KnowledgeCaptureController updateItem', () => {
     await expect(
       controller.updateItem('999', { contentMarkdown: '# Test' }),
     ).rejects.toThrow('Knowledge item not found');
+  });
+
+  it('deletes the knowledge item and its capture job together', async () => {
+    prisma.knowledgeItem.findUnique.mockResolvedValue({
+      id: 1,
+      title: 'Test',
+      jobId: 77,
+    });
+    prisma.$transaction = jest.fn(async (callback) => callback(prisma));
+
+    await controller.deleteItem('1');
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.knowledgeItem.delete).toHaveBeenCalledWith({
+      where: { id: 1 },
+    });
+    expect(prisma.job.delete).toHaveBeenCalledWith({ where: { id: 77 } });
+  });
+
+  it('deletes the knowledge item even when no capture job is linked', async () => {
+    prisma.knowledgeItem.findUnique.mockResolvedValue({
+      id: 2,
+      title: 'Manual',
+      jobId: null,
+    });
+    prisma.$transaction = jest.fn(async (callback) => callback(prisma));
+
+    await controller.deleteItem('2');
+
+    expect(prisma.knowledgeItem.delete).toHaveBeenCalledWith({
+      where: { id: 2 },
+    });
+    expect(prisma.job.delete).not.toHaveBeenCalled();
   });
 });
