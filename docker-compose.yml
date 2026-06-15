@@ -39,6 +39,8 @@ services:
     build:
       context: .
       dockerfile: client/Dockerfile
+      args:
+        VITE_EXTENSION_ID: ${VITE_EXTENSION_ID:-moelbdnbfakngfdfmhlhpnkofdamccoa}
     restart: unless-stopped
     depends_on:
       server:

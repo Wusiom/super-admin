@@ -45,7 +45,9 @@ cd server && npx prisma studio     # 打开 Prisma Studio
 
 # Docker
 docker compose up -d               # 启动全部服务（redis + server + client）
-docker compose up -d --build       # 重新构建并启动
+COMPOSE_PARALLEL_LIMIT=1 docker compose build  # VPS 生产构建：串行构建，降低 2C/2G 机器内存压力
+docker compose up -d --no-build    # 使用已构建镜像启动
+docker compose up -d --build       # 本地开发可用；VPS 生产不要优先用，容易并发构建卡住
 ```
 
 ## 架构概览

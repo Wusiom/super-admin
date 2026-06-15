@@ -1,220 +1,288 @@
 # Super Admin 部署指南
 
+## 当前生产链路
+
+当前已经跑通的链路是：
+
+```text
+push 到 main
+  -> GitHub Actions 触发 .github/workflows/deploy.yml
+  -> Actions 通过 SSH 登录 VPS
+  -> VPS 进入 /opt/super-admin
+  -> git fetch origin main
+  -> git reset --hard origin/main
+  -> COMPOSE_PARALLEL_LIMIT=1 docker compose build
+  -> docker compose up -d --no-build
+  -> docker compose ps
+  -> curl -fsS http://127.0.0.1/
+  -> curl -fsS http://127.0.0.1/api/tools
+  -> docker image prune -f
+```
+
+生产访问地址：
+
+```text
+http://8.130.118.128/
+```
+
+## 和旧链路的区别
+
+旧链路的问题不是 SSH，也不是 GitHub Actions。SSH 已经能连到 VPS，VPS 也能拉到 `origin/main`。
+
+真正卡住的是 VPS 本机构建：
+
+- 旧命令是 `docker compose up -d --build`，Compose 会并发构建 `server` 和 `client`。
+- 2 核 2GB 的 VPS 同时跑多个 Docker build 阶段，多个 `pnpm install` 一起下载和安装依赖。
+- server/client Dockerfile 之前都会复制对方的 `package.json`，导致安装范围偏大。
+- 结果就是部署日志长时间停在 `pnpm install`，看起来像“部署失败”，实际是小机器被构建压住了。
+
+现在的区别：
+
+- 构建和启动拆开：先 `docker compose build`，再 `docker compose up -d --no-build`。
+- 设置 `COMPOSE_PARALLEL_LIMIT=1`，让 Compose 串行构建镜像，降低 VPS 内存压力。
+- server 镜像只安装 server workspace 依赖：`pnpm install --filter server`。
+- client 镜像只安装 client workspace 依赖：`pnpm install --filter client`。
+- 启动后立刻跑 `docker compose ps` 和两个 `curl` 自检，失败点会直接暴露在 Actions 日志里。
+
 ## 前置要求
 
-- VPS / 云服务器（推荐 1 核 1GB 以上）
-- 操作系统：Ubuntu 22.04+ / Debian 12+
-- 域名（可选，但推荐配置 HTTPS）
+- VPS / 云服务器，当前生产机器为阿里云 ECS，Ubuntu 22.04 64 位。
+- Docker 和 Docker Compose 已安装。
+- VPS 上项目目录固定为 `/opt/super-admin`。
+- GitHub 仓库配置以下 Secrets：
+  - `VPS_HOST`
+  - `VPS_USERNAME`
+  - `VPS_SSH_KEY`
+- 防火墙至少允许 HTTP 访问：
+  - `80/tcp`
+  - 如后续配置 HTTPS，再开放 `443/tcp`
 
-## 1. 服务器初始化
+## 首次部署
 
-### 安装 Docker
-
-```bash
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-# 重新登录使权限生效
-```
-
-### 开放端口
-
-```bash
-# 仅需开放 80/443 端口
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw enable
-```
-
-## 2. 部署步骤
-
-### 2.1 拉取项目代码
-
-> 确保代码已推送到 Git 远程仓库（GitHub / GitLab 等），VPS 能访问该仓库。
+首次部署需要先在 VPS 上准备项目目录和环境变量。
 
 ```bash
-# 在 VPS 上
 cd /opt
 git clone <your-repo-url> super-admin
-cd super-admin
+cd /opt/super-admin
 ```
 
-### 2.2 配置环境变量
+创建 `.env`：
 
 ```bash
-# 创建 .env 文件
 cat > .env << 'EOF'
-# 服务端口
 CLIENT_PORT=80
-
-# 服务端数据库路径（容器内绝对路径）
+SERVER_PORT=3001
 DATABASE_URL=file:/app/data/prod.db
-
-# Redis（使用容器内 hostname）
 REDIS_HOST=redis
 REDIS_PORT=6379
 EOF
 ```
 
-### 2.3 启动服务
+首次手动启动：
 
 ```bash
-docker compose up -d
-# 查看状态
+COMPOSE_PARALLEL_LIMIT=1 docker compose build
+docker compose up -d --no-build
 docker compose ps
-# 查看日志
-docker compose logs -f
+curl -fsS http://127.0.0.1/
+curl -fsS http://127.0.0.1/api/tools
 ```
 
-### 2.4 验证
+## 日常部署
+
+日常部署不需要 SSH 手动执行命令。
+
+只要把代码 push 到 `main`：
 
 ```bash
-# 检查 API
-curl http://localhost/api/tools
-# 检查前端
-curl http://localhost/
+git push origin main
 ```
 
-## 3. 配置 HTTPS（推荐 Caddy）
+GitHub Actions 会自动 SSH 到 VPS 并执行部署脚本。
+
+如果必须手动在 VPS 上部署，使用和 Actions 一致的命令：
 
 ```bash
-# 安装 Caddy
-sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/caddy-stable-archive-keyring.gpg] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main" | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-sudo apt update && sudo apt install caddy
+cd /opt/super-admin
+git fetch origin main
+git reset --hard origin/main
+COMPOSE_PARALLEL_LIMIT=1 docker compose build
+docker compose up -d --no-build
+docker compose ps
+curl -fsS http://127.0.0.1/
+curl -fsS http://127.0.0.1/api/tools
+docker image prune -f
 ```
 
-Caddyfile（`/etc/caddy/Caddyfile`）:
+不要再用下面这个旧命令作为生产部署入口：
+
+```bash
+docker compose up -d --build
 ```
+
+它在本机开发可以用，但在 2 核 2GB VPS 上容易因为并发构建和依赖安装拖很久。
+
+## 服务组成
+
+`docker-compose.yml` 启动 3 个服务：
+
+- `redis`：BullMQ 队列依赖，数据保存在 `redis-data` volume。
+- `server`：NestJS API，容器内监听 `3000`，宿主机默认映射到 `3001`。
+- `client`：nginx 托管 Vue 静态资源，并把 `/api/` 反向代理到 `server:3000`。
+
+生产访问一般走 `client` 的 80 端口：
+
+```text
+用户浏览器 -> http://8.130.118.128/ -> client nginx -> /api -> server -> redis / SQLite
+```
+
+SQLite 数据库位于容器内 `/app/data/prod.db`，通过 `server-data` volume 持久化。
+
+## 验证部署
+
+在 VPS 上验证：
+
+```bash
+cd /opt/super-admin
+docker compose ps
+curl -fsS http://127.0.0.1/
+curl -fsS http://127.0.0.1/api/tools
+```
+
+在本机浏览器验证：
+
+```text
+http://8.130.118.128/
+```
+
+如果 GitHub Actions 失败，优先看日志停在哪一步：
+
+- `git fetch` / `git reset` 失败：仓库权限或 VPS 网络问题。
+- `docker compose build` 失败：镜像构建或依赖安装问题。
+- `docker compose up -d --no-build` 失败：容器启动问题。
+- `curl http://127.0.0.1/` 失败：前端 nginx 没起来或 80 端口异常。
+- `curl http://127.0.0.1/api/tools` 失败：后端健康检查、API、Redis 或数据库异常。
+
+## 备份数据库
+
+SQLite 数据库在 Docker volume 中。备份前建议确认服务状态：
+
+```bash
+cd /opt/super-admin
+docker compose ps
+docker cp super-admin-server-1:/app/data/prod.db ./backup-$(date +%Y%m%d).db
+```
+
+恢复：
+
+```bash
+cd /opt/super-admin
+docker cp ./backup-20260529.db super-admin-server-1:/app/data/prod.db
+docker compose restart server
+```
+
+定时备份示例：
+
+```cron
+0 3 * * * docker cp super-admin-server-1:/app/data/prod.db /opt/backups/super-admin-$(date +\%Y\%m\%d).db
+```
+
+## 日志与排查
+
+常用命令：
+
+```bash
+cd /opt/super-admin
+docker compose logs -f --tail=100 server
+docker compose logs -f --tail=100 client
+docker compose logs -f --tail=100 redis
+docker compose ps
+```
+
+常见问题：
+
+| 问题 | 检查方式 |
+| --- | --- |
+| GitHub Actions SSH 失败 | 检查 `VPS_HOST`、`VPS_USERNAME`、`VPS_SSH_KEY` |
+| 构建长时间卡住 | 确认使用 `COMPOSE_PARALLEL_LIMIT=1 docker compose build` |
+| 前端无法访问 | `curl -fsS http://127.0.0.1/`，检查 `client` 容器日志 |
+| API 无法访问 | `curl -fsS http://127.0.0.1/api/tools`，检查 `server` 容器日志 |
+| Redis 连接失败 | `docker compose exec redis redis-cli PING` |
+| 数据库错误 | `docker compose logs server | grep -i error` |
+| 内存不足 | 给 VPS 增加 swap，或继续减少 Docker 构建阶段的依赖安装量 |
+
+## Chrome 扩展部署
+
+扩展不通过 Chrome Web Store 发布，当前方式是开发者模式加载 `extension/` 目录。
+
+加载步骤：
+
+1. 打开 Chrome，访问 `chrome://extensions/`。
+2. 开启右上角“开发者模式”。
+3. 点击“加载已解压的扩展程序”。
+4. 选择项目中的 `extension/` 目录。
+
+扩展 ID 由 `extension/manifest.json` 里的 `"key"` 字段固定。这个 key 来自 `extension/extension.pem`，不要随意删除或重新生成，否则扩展 ID 会变化，已授权的扩展需要重新授权。
+
+生产环境需要确保 `externally_connectable.matches` 包含当前访问地址。当前公网 IP 应包含：
+
+```json
+{
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:*/*",
+      "http://127.0.0.1:*/*",
+      "http://8.130.118.128/*"
+    ]
+  }
+}
+```
+
+如果后续绑定 HTTPS 域名，再加入：
+
+```json
+"https://your-domain.com/*"
+```
+
+扩展权限说明：
+
+| 权限 | 用途 |
+| --- | --- |
+| `activeTab` | 用户点击扩展时获取当前标签页 URL |
+| `storage` | 存储 API token 和后端 URL 配置 |
+| `cookies` | 读取当前页面 Cookie |
+| `scripting` | 注入脚本提取 localStorage |
+
+## HTTPS
+
+当前公网 IP 已可通过 HTTP 访问。
+
+后续如果绑定域名，推荐在 VPS 上用 Caddy 做 HTTPS 反向代理：
+
+```caddyfile
 your-domain.com {
     reverse_proxy localhost:80
 }
 ```
 
+然后重新加载 Caddy：
+
 ```bash
 sudo systemctl reload caddy
 ```
 
-## 4. 更新部署
+Chrome 扩展的 `externally_connectable.matches` 也需要加入生产域名，例如：
 
-```bash
-cd /opt/super-admin
-# 拉取最新代码
-git pull
-# 重新构建并启动（--build 重建镜像）
-docker compose up -d --build
-# 清理旧镜像
-docker image prune -f
-```
-
-## 5. 备份数据库
-
-SQLite 数据库文件位于 Docker volume 中：
-
-```bash
-# 备份
-docker cp super-admin-server-1:/app/data/prod.db ./backup-$(date +%Y%m%d).db
-# 恢复
-docker cp ./backup-20260529.db super-admin-server-1:/app/data/prod.db
-docker compose restart server
-```
-
-或用 crontab 定时备份：
-```
-0 3 * * * docker cp super-admin-server-1:/app/data/prod.db /opt/backups/super-admin-$(date +\%Y\%m\%d).db
-```
-
-## 6. 日志与监控
-
-```bash
-# 查看各服务日志
-docker compose logs -f --tail=100 server
-docker compose logs -f --tail=100 client
-
-# 设置日志轮转（/etc/docker/daemon.json）
+```json
 {
-  "log-driver": "json-file",
-  "log-opts": {
-    "max-size": "10m",
-    "max-file": "3"
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:*/*",
+      "http://127.0.0.1:*/*",
+      "http://8.130.118.128/*",
+      "https://your-domain.com/*"
+    ]
   }
 }
 ```
-
-## 7. Chrome 扩展部署
-
-### 7.1 扩展加载
-
-1. 打开 Chrome 浏览器，访问 `chrome://extensions/`
-2. 开启右上角 **开发者模式**
-3. 点击 **加载已解压的扩展程序**
-4. 选择项目中的 `extension/` 目录
-
-### 7.2 扩展 ID 固定
-
-扩展 ID 由 `manifest.json` 中的 `"key"` 字段决定。该字段是 PEM 公钥的 base64 编码，从 `extension/extension.pem` 私钥提取。
-
-**⚠️ 重要：** PEM 私钥丢失会导致扩展 ID 变化，需要重新配置：
-- 前端环境变量 `VITE_EXTENSION_ID` 需要更新
-- 已授权的扩展需要重新授权
-- 生产环境的 `externally_connectable.matches` 配置不受影响（基于域名而非 ID）
-
-`extension.pem` 已纳入版本控制，请勿删除或重新生成。
-
-### 7.3 PEM 私钥管理
-
-- **开发环境**：PEM 私钥位于 `extension/extension.pem`，已纳入 Git 版本控制
-- **安全说明**：Chrome 扩展密钥仅用于固定扩展 ID，不涉及服务器密钥或用户数据加密
-- 如需重新生成：
-  ```bash
-  # 生成新的 RSA 密钥对（仅在私钥泄露或丢失时操作）
-  node -e "
-  const crypto = require('crypto');
-  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
-    modulusLength: 2048,
-    publicKeyEncoding: { type: 'spki', format: 'pem' },
-    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-  });
-  require('fs').writeFileSync('extension/extension.pem', privateKey);
-  // 手动更新 manifest.json 的 "key" 和 client/.env 的 VITE_EXTENSION_ID
-  "
-  ```
-  重新生成后需要重新加载扩展并重新授权。
-
-### 7.4 生产环境 externally_connectable 配置
-
-生产环境部署时，需要在 `extension/manifest.json` 的 `externally_connectable.matches` 中添加生产域名：
-
-```json
-"externally_connectable": {
-  "matches": [
-    "http://localhost:*/*",
-    "http://127.0.0.1:*/*",
-    "https://your-domain.com/*"
-  ]
-}
-```
-
-修改后需重新加载扩展（`chrome://extensions/` → 点击扩展卡片上的刷新按钮）。
-
-### 7.5 扩展权限说明
-
-| 权限 | 用途 |
-|------|------|
-| `activeTab` | 仅在用户点击扩展时获取当前标签页 URL |
-| `storage` | 存储 API token 和后端 URL 配置 |
-| `cookies` | 读取当前页面的登录 Cookie |
-| `scripting` | 注入 content script 提取 localStorage |
-
-扩展不在 Chrome Web Store 发布，仅通过开发者模式加载。
-
-## 8. 故障排查
-
-| 问题 | 检查方法 |
-|------|---------|
-| 端口占用 | `ss -tlnp \| grep :80` |
-| 容器未启动 | `docker compose ps -a` |
-| 数据库错误 | `docker compose logs server \| grep -i error` |
-| Redis 连接失败 | `docker compose exec redis redis-cli PING` |
-| 内存不足 | 考虑增加 swap：`fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile` |
-| 扩展无法连接 | 检查 `externally_connectable.matches` 是否包含当前前端地址；检查 CORS 配置 |
