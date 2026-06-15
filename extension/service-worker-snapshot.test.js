@@ -92,6 +92,9 @@ describe('service worker page snapshot capture', () => {
       capturedBody.pageHtml,
       '<html><body><article>Rendered body</article></body></html>',
     );
+    assert.deepStrictEqual(JSON.parse(capturedBody.pageHtmlMeta), {
+      title: 'Rendered Article',
+    });
   });
 
   it('falls back to direct tab execution when content-script has no snapshot', async () => {

@@ -176,8 +176,8 @@ async function handleDeleteItem(row: JobInfo) {
   try {
     await deleteKnowledgeItem(itemId);
     ElMessage.success('删除成功');
-    loadJobs();
-    loadMetrics();
+    if (expandedId.value === row.id) expandedId.value = null;
+    await Promise.all([loadJobs(), loadMetrics()]);
   } catch {
     ElMessage.error('删除失败');
   }

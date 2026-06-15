@@ -26,6 +26,7 @@ async function readFromContentScript(tabId) {
   const result = {
     localStorage: {},
     pageHtml: '',
+    pageTitle: '',
   };
 
   try {
@@ -45,6 +46,7 @@ async function readFromContentScript(tabId) {
     });
     if (snapshotRes && snapshotRes.success && snapshotRes.data && snapshotRes.data.html) {
       result.pageHtml = snapshotRes.data.html;
+      result.pageTitle = snapshotRes.data.title || '';
     }
   } catch (err) {
     console.warn('[Super Admin] content-script snapshot failed:', err.message);
@@ -55,7 +57,7 @@ async function readFromContentScript(tabId) {
 
 async function readDirectlyFromTab(tabId) {
   if (!chrome.scripting || !chrome.scripting.executeScript) {
-    return { localStorage: {}, pageHtml: '' };
+    return { localStorage: {}, pageHtml: '', pageTitle: '' };
   }
 
   try {
@@ -76,6 +78,7 @@ async function readDirectlyFromTab(tabId) {
 
         return {
           localStorage: localStorageData,
+          pageTitle: document.title || '',
           pageHtml: document.documentElement ? document.documentElement.outerHTML : '',
         };
       },
@@ -83,10 +86,10 @@ async function readDirectlyFromTab(tabId) {
 
     return injection && injection.result
       ? injection.result
-      : { localStorage: {}, pageHtml: '' };
+      : { localStorage: {}, pageHtml: '', pageTitle: '' };
   } catch (err) {
     console.warn('[Super Admin] direct tab read failed:', err.message);
-    return { localStorage: {}, pageHtml: '' };
+    return { localStorage: {}, pageHtml: '', pageTitle: '' };
   }
 }
 
@@ -103,6 +106,7 @@ async function readTabState(tabId) {
         ? fromContentScript.localStorage
         : fromDirectRead.localStorage,
     pageHtml: fromDirectRead.pageHtml,
+    pageTitle: fromDirectRead.pageTitle || fromContentScript.pageTitle || '',
   };
 }
 
@@ -149,6 +153,9 @@ async function handleCapture(tabUrl, tabId) {
       __reason__: 'localStorage payload exceeds 2MB limit',
       __original_size__: bodySize,
     });
+  }
+  if (tabState.pageTitle) {
+    payload.pageHtmlMeta = JSON.stringify({ title: tabState.pageTitle });
   }
 
   const controller = new AbortController();

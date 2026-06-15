@@ -206,6 +206,11 @@ export class KnowledgeCaptureController {
       where: { id: Number(id) },
     });
     if (!item) throw new NotFoundException('Knowledge item not found');
-    await this.prisma.knowledgeItem.delete({ where: { id: Number(id) } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.knowledgeItem.delete({ where: { id: Number(id) } });
+      if (item.jobId) {
+        await tx.job.delete({ where: { id: item.jobId } });
+      }
+    });
   }
 }
