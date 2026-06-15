@@ -13,9 +13,8 @@ FROM base AS build
 WORKDIR /app
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json .npmrc ./
 COPY server/package.json server/
-COPY client/package.json client/
 # BuildKit cache mount: pnpm store 持久化到 VPS 磁盘，跨构建复用
-RUN --mount=type=cache,target=/pnpm-store pnpm install --store-dir /pnpm-store --frozen-lockfile --ignore-scripts
+RUN --mount=type=cache,target=/pnpm-store pnpm install --store-dir /pnpm-store --frozen-lockfile --filter server --ignore-scripts
 RUN --mount=type=cache,target=/pnpm-store pnpm rebuild --store-dir /pnpm-store @prisma/client prisma @prisma/engines @nestjs/core
 COPY server/ server/
 ENV DATABASE_URL=file:/tmp/prisma-build.db
@@ -26,7 +25,6 @@ FROM base AS prod
 WORKDIR /app
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json .npmrc ./
 COPY server/package.json server/
-COPY client/package.json client/
 # 与 build 阶段共享同一个 cache mount，首次构建后几乎零下载
 RUN --mount=type=cache,target=/pnpm-store pnpm install --store-dir /pnpm-store --frozen-lockfile --prod --filter server --ignore-scripts
 RUN --mount=type=cache,target=/pnpm-store pnpm rebuild --store-dir /pnpm-store prisma @prisma/client @prisma/engines

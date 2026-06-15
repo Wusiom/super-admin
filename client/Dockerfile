@@ -5,8 +5,7 @@ RUN corepack enable && corepack prepare pnpm@9 --activate
 WORKDIR /app
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json .npmrc ./
 COPY client/package.json client/
-COPY server/package.json server/
-RUN --mount=type=cache,target=/pnpm-store pnpm install --store-dir /pnpm-store --frozen-lockfile
+RUN --mount=type=cache,target=/pnpm-store pnpm install --store-dir /pnpm-store --frozen-lockfile --filter client
 COPY client/ client/
 RUN pnpm --filter client build
 
