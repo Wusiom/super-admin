@@ -137,6 +137,8 @@ docker compose up -d --build
 用户浏览器 -> http://8.130.118.128/ -> client nginx -> /api -> server -> redis / SQLite
 ```
 
+`client` nginx 已配置 `client_max_body_size 5m`，与 NestJS 的 JSON body 上限保持一致。知识采集扩展发送较大的页面快照时，请求体应先到达后端并返回应用层认证或校验结果，而不是被 nginx 拦截为 `413 Request Entity Too Large`。
+
 SQLite 数据库位于容器内 `/app/data/prod.db`，通过 `server-data` volume 持久化。
 
 ## 验证部署
@@ -265,6 +267,8 @@ your-domain.com {
     reverse_proxy localhost:80
 }
 ```
+
+如果外层反向代理也限制请求体大小，需要允许至少 5MB，否则知识采集的大页面快照仍可能在 Caddy 或其他代理层被拦截。
 
 然后重新加载 Caddy：
 
