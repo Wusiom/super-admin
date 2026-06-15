@@ -18,6 +18,8 @@ jest.mock('@mozilla/readability', () => ({
     parse: jest.fn(() => ({
       title: document.title,
       content: document.body.textContent,
+      // 模拟 Readability 提取后的纯文本，用于页面类型检测
+      textContent: document.body.textContent,
     })),
   })),
 }));

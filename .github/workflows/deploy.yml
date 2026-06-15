@@ -18,7 +18,11 @@ jobs:
             cd /opt/super-admin
             git fetch origin main
             git reset --hard origin/main
-            docker compose up -d --build
+            COMPOSE_PARALLEL_LIMIT=1 docker compose build
+            docker compose up -d --no-build
+            docker compose ps
+            curl -fsS http://127.0.0.1/
+            curl -fsS http://127.0.0.1/api/tools
             docker image prune -f
             echo "✅ Deploy done — $(date)"
           '
