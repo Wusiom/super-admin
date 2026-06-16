@@ -5,7 +5,10 @@ jest.mock('./capture.processor', () => ({
 }));
 
 function mockJobEvents() {
-  return { emitEnrichedJob: jest.fn().mockResolvedValue(undefined) } as any;
+  return {
+    emitEnrichedJob: jest.fn().mockResolvedValue(undefined),
+    emitMetricsSnapshot: jest.fn().mockResolvedValue(undefined),
+  } as any;
 }
 
 describe('KnowledgeCaptureController capture', () => {
@@ -149,8 +152,10 @@ describe('KnowledgeCaptureController capture', () => {
 describe('KnowledgeCaptureController updateItem', () => {
   let controller: KnowledgeCaptureController;
   let prisma: any;
+  let jobEvents: any;
 
   beforeEach(() => {
+    jobEvents = mockJobEvents();
     prisma = {
       knowledgeItem: {
         findUnique: jest.fn(),
@@ -164,7 +169,7 @@ describe('KnowledgeCaptureController updateItem', () => {
         update: jest.fn(),
       },
     };
-    controller = new KnowledgeCaptureController(prisma, {} as any, mockJobEvents());
+    controller = new KnowledgeCaptureController(prisma, {} as any, jobEvents);
   });
 
   it('updates contentMarkdown and returns updated item', async () => {
@@ -198,5 +203,46 @@ describe('KnowledgeCaptureController updateItem', () => {
     await expect(
       controller.updateItem('999', { contentMarkdown: '# Test' }),
     ).rejects.toThrow('Knowledge item not found');
+  });
+
+  it('deletes an item and broadcasts the owning job plus metrics', async () => {
+    prisma.knowledgeItem.findUnique.mockResolvedValue({
+      id: 1,
+      jobId: 42,
+    });
+    prisma.knowledgeItem.delete.mockResolvedValue({ id: 1 });
+
+    await controller.deleteItem('1');
+
+    expect(prisma.knowledgeItem.delete).toHaveBeenCalledWith({
+      where: { id: 1 },
+    });
+    expect(jobEvents.emitEnrichedJob).toHaveBeenCalledWith(42);
+    expect(jobEvents.emitMetricsSnapshot).toHaveBeenCalledWith('knowledge-capture');
+  });
+
+  it('lists items without markdown or html bodies', async () => {
+    prisma.knowledgeItem.findMany.mockResolvedValue([
+      {
+        id: 1,
+        title: 'Test',
+        url: 'https://example.com',
+        status: 'published',
+      },
+    ]);
+    prisma.knowledgeItem.count.mockResolvedValue(1);
+
+    const result = await controller.listItems('1', '20');
+
+    expect(prisma.knowledgeItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.not.objectContaining({
+          contentMarkdown: true,
+          contentHtml: true,
+        }),
+      }),
+    );
+    expect(JSON.stringify(result)).not.toContain('contentMarkdown');
+    expect(JSON.stringify(result)).not.toContain('contentHtml');
   });
 });

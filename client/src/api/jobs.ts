@@ -22,6 +22,7 @@ export interface JobInfo {
   status: 'pending' | 'running' | 'active' | 'success' | 'completed' | 'failed'
   error: string | null
   createdAt: string
+  updatedAt?: string
   diagnostics?: TaskDiagnostics
   diagnosticsSummary?: string
 }

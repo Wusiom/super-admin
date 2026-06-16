@@ -101,6 +101,7 @@ export class KnowledgeCaptureController {
         },
       });
       void this.jobEvents.emitEnrichedJob(job.id);
+      void this.jobEvents.emitMetricsSnapshot('knowledge-capture');
       return { jobId: job.id };
     }
 
@@ -114,6 +115,7 @@ export class KnowledgeCaptureController {
 
     // 通知前端有新任务
     void this.jobEvents.emitEnrichedJob(job.id);
+    void this.jobEvents.emitMetricsSnapshot('knowledge-capture');
 
     const mockJob = {
       id: `direct-${job.id}`,
@@ -137,6 +139,7 @@ export class KnowledgeCaptureController {
             data: { status: 'success', output: JSON.stringify(result) },
           });
           void this.jobEvents.emitEnrichedJob(job.id);
+          void this.jobEvents.emitMetricsSnapshot('knowledge-capture');
         } catch (dbErr: any) {
           console.error(`[capture] Failed to update job ${job.id} to success:`, dbErr.message);
         }
@@ -150,6 +153,7 @@ export class KnowledgeCaptureController {
             data: { status: 'failed', error: err.message || String(err) },
           });
           void this.jobEvents.emitEnrichedJob(job.id);
+          void this.jobEvents.emitMetricsSnapshot('knowledge-capture');
         } catch (dbErr: any) {
           console.error(`[capture] Failed to update job ${job.id} to failed:`, dbErr.message);
         }
@@ -168,6 +172,17 @@ export class KnowledgeCaptureController {
         orderBy: { capturedAt: 'desc' },
         skip: (Number(page) - 1) * Number(pageSize),
         take: Number(pageSize),
+        select: {
+          id: true,
+          title: true,
+          url: true,
+          source: true,
+          status: true,
+          capturedAt: true,
+          jobId: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       }),
       this.prisma.knowledgeItem.count(),
     ]);
@@ -207,5 +222,9 @@ export class KnowledgeCaptureController {
     });
     if (!item) throw new NotFoundException('Knowledge item not found');
     await this.prisma.knowledgeItem.delete({ where: { id: Number(id) } });
+    if (item.jobId) {
+      void this.jobEvents.emitEnrichedJob(item.jobId);
+    }
+    void this.jobEvents.emitMetricsSnapshot('knowledge-capture');
   }
 }

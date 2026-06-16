@@ -113,12 +113,12 @@ export function deriveJobDiagnostics(
   if (knowledgeItem) {
     diagnostics.itemId = knowledgeItem.id;
     diagnostics.itemTitle = knowledgeItem.title;
-    diagnostics.markdownLength = knowledgeItem.contentMarkdown
-      ? knowledgeItem.contentMarkdown.length
-      : 0;
-    diagnostics.htmlLength = knowledgeItem.contentHtml
-      ? knowledgeItem.contentHtml.length
-      : 0;
+    if (typeof knowledgeItem.contentMarkdown === 'string') {
+      diagnostics.markdownLength = knowledgeItem.contentMarkdown.length;
+    }
+    if (typeof knowledgeItem.contentHtml === 'string') {
+      diagnostics.htmlLength = knowledgeItem.contentHtml.length;
+    }
     diagnostics.capturedAt = knowledgeItem.capturedAt
       ? knowledgeItem.capturedAt.toISOString()
       : undefined;

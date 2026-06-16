@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import {
   fetchJobs,
-  fetchJobsMetrics,
   retryJob,
   type JobInfo,
   type JobsMetrics,
@@ -25,21 +24,12 @@ const metrics = ref<JobsMetrics>({
   failedCount: 0,
 });
 
-async function loadMetrics() {
-  try {
-    const { data } = await fetchJobsMetrics({ toolKey: 'knowledge-capture' });
-    metrics.value = data;
-  } catch {
-    // 静默失败，保留上次数据
-  }
-}
-
 // ---- Task list ----
 const jobs = ref<JobInfo[]>([]);
 const total = ref(0);
 const page = ref(1);
 const pageSize = ref(20);
-const loading = ref(false);
+const loading = ref(true);
 const filterStatus = ref('');
 const expandedId = ref<string | null>(null);
 
@@ -63,7 +53,9 @@ function connectSSE() {
         jobs.value = data.jobs;
         total.value = data.total;
       }
+      loading.value = false;
     } catch {
+      loading.value = false;
       /* JSON 解析失败忽略 */
     }
   });
@@ -104,6 +96,7 @@ function connectSSE() {
   });
 
   eventSource.onerror = () => {
+    loading.value = false;
     // EventSource 会自动重连，无需额外处理
   };
 }
@@ -115,7 +108,7 @@ function disconnectSSE() {
   }
 }
 
-// ---- REST 请求（分页 / 筛选 / 手动刷新） ----
+// ---- REST 请求（分页 / 筛选） ----
 async function loadJobs() {
   loading.value = true;
   try {
@@ -161,7 +154,7 @@ async function handleRetry(row: JobInfo) {
   try {
     await retryJob(row.id);
     ElMessage.success('已重新入队');
-    // SSE 会推送状态变更，无需手动刷新
+    // SSE 会推送状态变更，无需额外拉取列表
   } catch {
     ElMessage.error('重试失败');
   }
@@ -176,8 +169,6 @@ async function handleDeleteItem(row: JobInfo) {
   try {
     await deleteKnowledgeItem(itemId);
     ElMessage.success('删除成功');
-    loadJobs();
-    loadMetrics();
   } catch {
     ElMessage.error('删除失败');
   }
@@ -320,9 +311,6 @@ const expandedJob = computed(() => {
 
 onMounted(() => {
   connectSSE();
-  // 同时走 REST 做初始加载，确保 SSE 连接建立前 UI 已有数据
-  loadMetrics();
-  loadJobs();
 });
 
 onUnmounted(() => {
@@ -397,16 +385,6 @@ onUnmounted(() => {
             <el-radio-button value="failed">失败</el-radio-button>
           </el-radio-group>
         </div>
-        <el-button
-          text
-          size="small"
-          @click="
-            loadJobs();
-            loadMetrics();
-          "
-        >
-          刷新
-        </el-button>
       </div>
 
       <!-- 任务表格 -->
@@ -488,14 +466,20 @@ onUnmounted(() => {
                 重试
               </el-button>
               <el-button
-                v-if="row.status === 'success' || row.status === 'completed'"
+                v-if="
+                  (row.status === 'success' || row.status === 'completed') &&
+                  row.diagnostics?.itemId
+                "
                 size="small"
                 @click="viewMarkdown(row)"
               >
                 查看
               </el-button>
               <el-popconfirm
-                v-if="row.status === 'success' || row.status === 'completed'"
+                v-if="
+                  (row.status === 'success' || row.status === 'completed') &&
+                  row.diagnostics?.itemId
+                "
                 title="确认删除该条知识？"
                 @confirm="handleDeleteItem(row)"
               >
@@ -644,6 +628,7 @@ onUnmounted(() => {
             </p>
             <div class="flex gap-2">
               <el-button
+                v-if="expandedJob.diagnostics?.itemId"
                 type="primary"
                 size="small"
                 @click="viewMarkdown(expandedJob)"
@@ -651,6 +636,7 @@ onUnmounted(() => {
                 查看 Markdown
               </el-button>
               <el-popconfirm
+                v-if="expandedJob.diagnostics?.itemId"
                 title="确认删除该条知识？"
                 @confirm="handleDeleteItem(expandedJob)"
               >
