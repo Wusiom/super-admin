@@ -35,6 +35,7 @@ export class CleanupService {
       for (const { id } of stalePending) {
         void this.jobEvents.emitEnrichedJob(id);
       }
+      void this.jobEvents.emitMetricsSnapshot();
     }
 
     // 标记卡住的 running 任务（server 重启等场景）
@@ -56,6 +57,7 @@ export class CleanupService {
       for (const { id } of stalledRunning) {
         void this.jobEvents.emitEnrichedJob(id);
       }
+      void this.jobEvents.emitMetricsSnapshot();
     }
   }
 }

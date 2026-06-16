@@ -13,7 +13,10 @@ describe('CleanupService', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
     };
-    const jobEvents = { emitEnrichedJob: jest.fn() } as any;
+    const jobEvents = {
+      emitEnrichedJob: jest.fn(),
+      emitMetricsSnapshot: jest.fn(),
+    } as any;
     const service = new CleanupService(prisma as any, jobEvents);
 
     await service.cleanupStaleJobs();
@@ -48,7 +51,10 @@ describe('CleanupService', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 3 }),
       },
     };
-    const jobEvents = { emitEnrichedJob: jest.fn().mockResolvedValue(undefined) } as any;
+    const jobEvents = {
+      emitEnrichedJob: jest.fn().mockResolvedValue(undefined),
+      emitMetricsSnapshot: jest.fn().mockResolvedValue(undefined),
+    } as any;
     const service = new CleanupService(prisma as any, jobEvents);
 
     await service.cleanupStaleJobs();
@@ -57,5 +63,6 @@ describe('CleanupService', () => {
     expect(jobEvents.emitEnrichedJob).toHaveBeenCalledWith(1);
     expect(jobEvents.emitEnrichedJob).toHaveBeenCalledWith(3);
     expect(jobEvents.emitEnrichedJob).toHaveBeenCalledWith(5);
+    expect(jobEvents.emitMetricsSnapshot).toHaveBeenCalledTimes(2);
   });
 });
