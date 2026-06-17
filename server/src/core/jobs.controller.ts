@@ -77,6 +77,11 @@ export class JobsController {
     });
   }
 
+  private normalizeStatusFilter(status?: string) {
+    if (status === 'completed') return 'success';
+    return status;
+  }
+
   @Get()
   async getJobs(
     @Query('toolKey') toolKey?: string,
@@ -86,7 +91,8 @@ export class JobsController {
   ) {
     const where: any = {};
     if (toolKey) where.toolKey = toolKey;
-    if (status) where.status = status;
+    const normalizedStatus = this.normalizeStatusFilter(status);
+    if (normalizedStatus) where.status = normalizedStatus;
 
     const [items, total] = await Promise.all([
       this.prisma.job.findMany({

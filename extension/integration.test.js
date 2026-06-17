@@ -29,9 +29,26 @@ global.chrome = {
   },
   cookies: { getAll: async () => [] },
   tabs: { sendMessage: async () => ({ success: true, data: {} }) },
+  scripting: {
+    executeScript: async () => [
+      {
+        result: null,
+      },
+    ],
+  },
   runtime: {
-    onMessage: { addListener() {}, _listeners: [] },
-    onMessageExternal: { addListener() {}, _listeners: [] },
+    onMessage: {
+      _listeners: [],
+      addListener(listener) {
+        this._listeners.push(listener);
+      },
+    },
+    onMessageExternal: {
+      _listeners: [],
+      addListener(listener) {
+        this._listeners.push(listener);
+      },
+    },
   },
 };
 
@@ -70,6 +87,15 @@ describe('集成测试：采集消息流', () => {
 
   beforeEach(() => {
     resetState();
+    chrome.cookies.getAll = async () => [];
+    chrome.tabs.sendMessage = async () => ({ success: true, data: {} });
+    chrome.scripting = {
+      executeScript: async () => [
+        {
+          result: null,
+        },
+      ],
+    };
   });
 
   afterEach(() => {
@@ -96,6 +122,7 @@ describe('集成测试：采集消息流', () => {
 
     const body = JSON.parse(capturedInit.body);
     assert.strictEqual(body.url, 'https://example.com/article');
+    assert.strictEqual(Object.hasOwn(body, 'pageAppData'), false);
   });
 
   it('未配置 → not_configured', async () => {
@@ -212,6 +239,62 @@ describe('集成测试：采集消息流', () => {
     assert.strictEqual(ls.__truncated__, true);
     assert.ok(ls.__original_size__ > 2 * 1024 * 1024);
   });
+
+  it('includes pageAppData as a JSON string for Yuque page captures', async () => {
+    mockStorage.token = 'valid-token';
+    mockStorage.backendUrl = 'http://localhost:3000';
+
+    chrome.cookies.getAll = async () => [
+      { name: '_yuque_session', value: 'cookie-value', domain: '.yuque.com', path: '/' },
+    ];
+    chrome.tabs.sendMessage = async (_tabId, message) => {
+      if (message.action === 'getLocalStorage') {
+        return { success: true, data: { theme: 'dark' } };
+      }
+      if (message.action === 'getPageSnapshot') {
+        return {
+          success: true,
+          data: {
+            title: 'Yuque API Capture',
+            html: '<html><body><main><h1>Yuque API Capture</h1><p>Rendered snapshot body</p></main></body></html>',
+          },
+        };
+      }
+      return { success: false };
+    };
+    chrome.scripting = {
+      executeScript: async () => [
+        {
+          result: {
+            bookId: 3001,
+            articleSlug: 'api-capture',
+            host: 'www.yuque.com',
+          },
+        },
+      ],
+    };
+
+    let capturedBody = null;
+    mockFetch(async (_url, init) => {
+      capturedBody = JSON.parse(init.body);
+      return new MockResponse({ jobId: 456 }, 201);
+    });
+
+    const result = await handleCapture('https://www.yuque.com/team/api-capture', 1);
+
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.jobId, 456);
+    assert.strictEqual(capturedBody.url, 'https://www.yuque.com/team/api-capture');
+    assert.deepStrictEqual(JSON.parse(capturedBody.cookies), [
+      { name: '_yuque_session', value: 'cookie-value', domain: '.yuque.com', path: '/' },
+    ]);
+    assert.deepStrictEqual(JSON.parse(capturedBody.localStorage), { theme: 'dark' });
+    assert.deepStrictEqual(JSON.parse(capturedBody.pageAppData), {
+      bookId: 3001,
+      articleSlug: 'api-capture',
+      host: 'www.yuque.com',
+    });
+  });
 });
 
 describe('外部消息配置', () => {
@@ -227,6 +310,40 @@ describe('外部消息配置', () => {
     await chrome.storage.local.set({ token: 'test', backendUrl: 'http://localhost:3000' });
     const config = await sw.getConfig();
     assert.strictEqual(config.token, 'test');
+    assert.strictEqual(config.backendUrl, 'http://localhost:3000');
+  });
+
+  it('rejects external setConfig messages from untrusted origins', async () => {
+    const listener = chrome.runtime.onMessageExternal._listeners[0];
+
+    const response = await new Promise((resolve) => {
+      listener(
+        { action: 'setConfig', token: 'evil-token', backendUrl: 'http://evil.test' },
+        { origin: 'https://evil.test' },
+        resolve,
+      );
+    });
+
+    const config = await sw.getConfig();
+    assert.deepStrictEqual(response, { success: false, error: 'forbidden_origin' });
+    assert.notStrictEqual(config.token, 'evil-token');
+    assert.notStrictEqual(config.backendUrl, 'http://evil.test');
+  });
+
+  it('accepts external setConfig messages from manifest-allowed origins', async () => {
+    const listener = chrome.runtime.onMessageExternal._listeners[0];
+
+    const response = await new Promise((resolve) => {
+      listener(
+        { action: 'setConfig', token: 'allowed-token', backendUrl: 'http://localhost:3000' },
+        { origin: 'http://localhost:5173' },
+        resolve,
+      );
+    });
+
+    const config = await sw.getConfig();
+    assert.deepStrictEqual(response, { success: true });
+    assert.strictEqual(config.token, 'allowed-token');
     assert.strictEqual(config.backendUrl, 'http://localhost:3000');
   });
 });

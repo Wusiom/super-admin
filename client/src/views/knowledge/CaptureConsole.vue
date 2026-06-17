@@ -72,14 +72,16 @@ function connectSSE() {
       if (idx >= 0) {
         // 替换已有任务
         jobs.value.splice(idx, 1, changedJob);
-      } else if (jobs.value.length < pageSize.value) {
-        // 新任务 — 插入并按创建时间降序排列
+      } else {
+        // 新任务 — 首页保持实时头插；满页时裁掉最后一条
         jobs.value.unshift(changedJob);
-        jobs.value.sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        );
+        total.value += 1;
       }
+      jobs.value.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+      jobs.value = jobs.value.slice(0, pageSize.value);
     } catch {
       /* JSON 解析失败忽略 */
     }
@@ -310,7 +312,7 @@ function diagnosticsLabelType(
   row: JobInfo,
 ): 'info' | 'success' | 'danger' | 'warning' {
   if (!row.diagnostics) return 'info';
-  if (row.status === 'completed') return 'success';
+  if (row.status === 'success' || row.status === 'completed') return 'success';
   if (row.status === 'failed') return 'danger';
   if (row.status === 'running' || row.status === 'pending') return 'warning';
   return 'info';
@@ -393,7 +395,7 @@ onUnmounted(() => {
           >
             <el-radio-button value="">全部</el-radio-button>
             <el-radio-button value="running">进行中</el-radio-button>
-            <el-radio-button value="completed">成功</el-radio-button>
+            <el-radio-button value="success">成功</el-radio-button>
             <el-radio-button value="failed">失败</el-radio-button>
           </el-radio-group>
         </div>
