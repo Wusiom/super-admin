@@ -12,6 +12,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 - When changing backend behavior, check related controller, service, processor, Prisma schema, and job lifecycle.
 - When changing frontend behavior, check related API client, store, router, view, and component usage.
 - If a change affects architecture, update docs.
+- 项目文档、设计文档和生成的规格说明默认使用中文；除非用户明确要求其他语言。
 
 ## 常用命令
 

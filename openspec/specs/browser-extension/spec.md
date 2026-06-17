@@ -28,7 +28,7 @@ The extension SHALL provide a popup UI that is displayed when the user clicks th
 - **THEN** it SHALL close automatically after 5 seconds
 
 ### Requirement: Login state extraction
-The extension SHALL extract the current page's cookies and localStorage when the user initiates a capture, and SHALL NOT persist them to any storage.
+The extension SHALL extract the current page's cookies and localStorage when the user initiates a capture, and SHALL NOT persist them to any storage. The extension SHALL extract Yuque document metadata from `window.appData` when available, and SHALL NOT persist that metadata to any storage.
 
 #### Scenario: Cookie extraction
 - **WHEN** the user clicks "采集" on a configured extension
@@ -42,8 +42,19 @@ The extension SHALL extract the current page's cookies and localStorage when the
 - **WHEN** content-script.js serializes `localStorage`
 - **THEN** it SHALL traverse the Storage interface using `storage.length`, `storage.key(i)`, and `storage.getItem(key)` to produce a plain object, rather than calling `JSON.stringify(localStorage)` directly
 
-#### Scenario: Credentials never persisted
-- **WHEN** cookies and localStorage are extracted from the current page
+#### Scenario: Yuque page metadata extraction
+- **WHEN** the user clicks "采集" on a configured extension and the current page exposes compatible Yuque `window.appData`
+- **THEN** the service worker extracts `bookId`, `articleSlug`, and `host` from the page context
+- **AND** metadata MAY be derived from either `window.appData.doc` or `window.appData.book` plus the current URL slug
+- **AND** the extracted metadata is included as `pageAppData` in the capture request payload
+
+#### Scenario: Yuque page metadata unavailable
+- **WHEN** the user clicks "采集" on a page without compatible Yuque `window.appData`
+- **THEN** the extension omits `pageAppData` or sends it as null
+- **AND** the capture request still includes the normal URL, cookies, localStorage, and page snapshot fields
+
+#### Scenario: Credentials and page metadata never persisted
+- **WHEN** cookies, localStorage, and `pageAppData` are extracted from the current page
 - **THEN** they SHALL only exist in memory during the capture request and SHALL NOT be written to `chrome.storage` or any persistent storage
 
 ### Requirement: External configuration via Web push
@@ -58,11 +69,16 @@ The extension SHALL accept configuration (API token and backend URL) from the su
 - **THEN** the service worker does nothing and responds with `{ success: false }`
 
 ### Requirement: Backward-compatible capture request format
-The extension SHALL send capture requests in the same JSON format as the existing `CapturePage.vue` web form.
+The extension SHALL send capture requests in the same JSON format as the existing `CapturePage.vue` web form, with optional page metadata for site-specific processors.
 
 #### Scenario: Capture request payload format
 - **WHEN** the extension sends a capture request to `POST /api/tools/knowledge-capture/capture`
 - **THEN** the request body contains `url` (string), `cookies` (JSON-encoded string), and `localStorage` (JSON-encoded string), with `Authorization: Bearer <token>` header
+
+#### Scenario: Optional Yuque metadata payload format
+- **WHEN** the extension sends a capture request for a page with extracted Yuque metadata
+- **THEN** the request body contains JSON-encoded `pageAppData` with `bookId`, `articleSlug`, and `host`
+- **AND** the existing request fields remain unchanged
 
 #### Scenario: Request timeout handling
 - **WHEN** a capture request exceeds 4 minutes without response
@@ -73,7 +89,9 @@ The extension SHALL be a Manifest V3 Chrome extension with minimal permissions.
 
 #### Scenario: Permissions declaration
 - **WHEN** the extension is loaded in Chrome
-- **THEN** manifest.json declares permissions: `activeTab`, `storage`, `cookies`, `scripting`; and `externally_connectable.matches` includes both localhost and production frontend origins
+- **THEN** manifest.json declares permissions: `activeTab`, `storage`, `cookies`, `scripting`
+- **AND** manifest.json declares host permissions sufficient to read cookies for the current captured page
+- **AND** `externally_connectable.matches` includes both localhost and production frontend origins
 
 #### Scenario: Fixed extension ID
 - **WHEN** the extension is built for developer mode loading

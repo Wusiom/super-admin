@@ -1,12 +1,12 @@
 ## Purpose
 
-定义知识采集工具的行为规范：Chrome 扩展将用户浏览器中已渲染的页面 DOM 快照（pageHtml）发送到后端，后端使用 Mozilla Readability 提取正文并转换为 Markdown 存储。采集是同步内联执行的（不经过 BullMQ 队列），整个流程在单次 HTTP 请求中完成。本规格覆盖采集任务的创建、执行、错误处理，以及知识条目的查询、查看和删除。
+定义知识采集工具的行为规范：Chrome 扩展将用户浏览器中已渲染的页面 DOM 快照（pageHtml）发送到后端，后端使用 Mozilla Readability 提取正文并转换为 Markdown 存储。对于具备有效页面元数据和 cookie 的语雀文档页，后端优先调用语雀文档 API 获取服务端 Markdown，再按需回退到通用 HTML 快照管线。采集是同步内联执行的（不经过 BullMQ 队列），整个流程在单次 HTTP 请求中完成。本规格覆盖采集任务的创建、执行、错误处理，以及知识条目的查询、查看和删除。
 
 ## Requirements
 
 ### Requirement: Create Capture Job
 
-The system SHALL allow the Chrome extension to submit a page snapshot for capture. The request MUST include a valid URL and a page HTML snapshot. The response SHALL return the job ID for tracking.
+The system SHALL allow the Chrome extension to submit a page snapshot for capture. The request MUST include a valid URL and a page HTML snapshot, unless a site-specific capture path can use optional page metadata. The request MAY include `pageAppData` for site-specific capture processors. The response SHALL return the job ID for tracking.
 
 #### Scenario: Submit page snapshot for capture
 
@@ -15,9 +15,16 @@ The system SHALL allow the Chrome extension to submit a page snapshot for captur
 - **AND** the capture processor is invoked inline to extract content from the pageHtml
 - **AND** the response returns `{ "jobId": <id> }` with HTTP 201
 
+#### Scenario: Submit Yuque page metadata for capture
+
+- **WHEN** Chrome extension submits `POST /api/tools/knowledge-capture/capture` with Yuque `url`, `pageHtml`, `cookies`, and `pageAppData`
+- **THEN** a new Job record is created with `toolKey = "knowledge-capture"`, `status = "running"`
+- **AND** the capture processor receives `pageAppData` for Yuque-specific extraction
+- **AND** the response returns `{ "jobId": <id> }` with HTTP 201
+
 #### Scenario: Submit without pageHtml
 
-- **WHEN** a capture request is submitted without `pageHtml` (or with an empty pageHtml)
+- **WHEN** a capture request is submitted without `pageHtml` (or with an empty pageHtml), and no site-specific capture path can use the submitted metadata
 - **THEN** a Job record is created with `status = "failed"` and error "Page snapshot was not received from the extension"
 - **AND** the response returns `{ "jobId": <id> }` with HTTP 201 (the job itself is created but already failed)
 
@@ -34,16 +41,44 @@ The system SHALL allow the Chrome extension to submit a page snapshot for captur
 
 ### Requirement: Execute Capture from Page Snapshot
 
-The capture processor SHALL parse the page HTML snapshot from the Chrome extension using JSDOM, extract the main content using Mozilla Readability, and convert the result to Markdown. No browser is launched server-side.
+For generic pages, the capture processor SHALL parse the page HTML snapshot from the Chrome extension using JSDOM, extract the main content using Mozilla Readability, and convert the result to Markdown. No browser is launched server-side. For Yuque document pages with valid page metadata and cookies, the processor SHALL try Yuque API Markdown capture before falling back to the generic HTML pipeline when appropriate.
 
 #### Scenario: Successful page capture
 
-- **WHEN** the capture processor executes with a valid pageHtml snapshot
+- **WHEN** the capture processor executes with a valid non-Yuque pageHtml snapshot
 - **THEN** JSDOM parses the HTML
 - **AND** Mozilla Readability extracts the main article content
 - **AND** the extracted HTML is converted to Markdown using Turndown
 - **AND** a KnowledgeItem record is created with title, url, contentHtml, contentMarkdown, status="published", and jobId
 - **AND** the Job record is updated to status `success` with `output = { "itemId": <knowledgeItemId> }`
+
+#### Scenario: Successful Yuque API Markdown capture
+
+- **WHEN** the capture processor executes with Yuque URL, valid `pageAppData`, collected cookies, and the Yuque API returns Markdown in `data.sourcecode`
+- **THEN** the processor stores `data.sourcecode` as `KnowledgeItem.contentMarkdown`
+- **AND** the processor stores Yuque API HTML content as `KnowledgeItem.contentHtml` when available
+- **AND** the processor uses the Yuque API title when available
+- **AND** the KnowledgeItem is created with `source = "yuque"`, `status = "published"`, and the current jobId
+- **AND** the Job record is updated to status `success` with `output = { "itemId": <knowledgeItemId> }`
+
+#### Scenario: Yuque metadata missing
+
+- **WHEN** the capture processor executes with a Yuque URL but without valid `pageAppData`
+- **THEN** the processor uses the existing JSDOM, Readability, and Turndown pipeline
+- **AND** the job result follows the generic page capture result
+
+#### Scenario: Yuque API recoverable failure fallback
+
+- **WHEN** the capture processor executes with Yuque URL and valid `pageAppData`, but the Yuque API request has a network error, unexpected response shape, non-auth HTTP error, or empty Markdown
+- **THEN** the processor uses the existing JSDOM, Readability, and Turndown pipeline as fallback when a usable page snapshot exists
+- **AND** the job result follows the generic page capture result
+
+#### Scenario: Yuque API authentication failure
+
+- **WHEN** the capture processor executes with a Yuque URL and the Yuque API returns HTTP 401 or 403
+- **THEN** the Job record status becomes `failed` with error type `LOCKED_CONTENT`
+- **AND** the processor does NOT create a KnowledgeItem from fallback HTML content
+- **AND** the job is NOT retried
 
 #### Scenario: Readability extraction fails (EXTRACTION_FAILED)
 

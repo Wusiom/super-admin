@@ -69,4 +69,34 @@ describe('JobsController getJobs', () => {
     expect(JSON.stringify(job)).not.toContain('contentMarkdown');
     expect(JSON.stringify(job)).not.toContain('contentHtml');
   });
+
+  it('treats completed status filter as the stored success status', async () => {
+    const prisma = {
+      job: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      knowledgeItem: {
+        findMany: jest.fn(),
+      },
+    };
+    const controller = new JobsController(prisma as any, {} as any);
+
+    await controller.getJobs('knowledge-capture', 'completed');
+
+    expect(prisma.job.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          toolKey: 'knowledge-capture',
+          status: 'success',
+        },
+      }),
+    );
+    expect(prisma.job.count).toHaveBeenCalledWith({
+      where: {
+        toolKey: 'knowledge-capture',
+        status: 'success',
+      },
+    });
+  });
 });

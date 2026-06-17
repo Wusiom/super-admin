@@ -15,6 +15,18 @@ interface ExtractedContent {
   textContent: string;
 }
 
+interface YuquePageAppData {
+  bookId: string | number;
+  articleSlug: string;
+  host: string;
+}
+
+interface YuqueApiCapture {
+  title: string;
+  contentMarkdown: string;
+  contentHtml: string;
+}
+
 const BLOCKED_PATTERNS = [
   /hold the slider/i,
   /drag it to the far right/i,
@@ -96,6 +108,141 @@ function parsePageHtmlMeta(raw: unknown): Record<string, any> {
   } catch {
     return {};
   }
+}
+
+function parsePageAppData(raw: unknown): YuquePageAppData | null {
+  const value = parsePageHtmlMeta(raw);
+  const bookId = value.bookId ?? value.book_id;
+  const articleSlug = value.articleSlug ?? value.article_slug ?? value.slug;
+  const host = value.host ?? value.hostname;
+
+  if (!bookId || !articleSlug || !host) return null;
+
+  return {
+    bookId,
+    articleSlug: String(articleSlug),
+    host: String(host),
+  };
+}
+
+function isYuqueDocumentUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return isYuqueHostname(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isYuqueHostname(hostname: string) {
+  const normalized = hostname.toLowerCase().replace(/\.$/, '');
+  return normalized === 'yuque.com' || normalized.endsWith('.yuque.com');
+}
+
+function normalizeAppDataHostname(host: string) {
+  const trimmed = host.trim().toLowerCase().replace(/\.$/, '');
+  if (!trimmed) return '';
+  if (/[\u0000-\u001f\u007f\s/?#@\\:]/.test(trimmed)) return '';
+  if (!/^[a-z0-9.-]+$/.test(trimmed)) return '';
+  if (trimmed.includes('..')) return '';
+  return trimmed;
+}
+
+function resolveYuqueApiHostname(pageAppData: YuquePageAppData, pageUrl: string) {
+  try {
+    const pageHostname = new URL(pageUrl).hostname.toLowerCase().replace(/\.$/, '');
+    const appDataHostname = normalizeAppDataHostname(pageAppData.host);
+    if (
+      pageHostname &&
+      pageHostname === appDataHostname &&
+      isYuqueHostname(pageHostname)
+    ) {
+      return pageHostname;
+    }
+  } catch {
+    return '';
+  }
+
+  return '';
+}
+
+function buildYuqueApiUrl(pageAppData: YuquePageAppData, pageUrl: string) {
+  const host = resolveYuqueApiHostname(pageAppData, pageUrl);
+  if (!host) return '';
+
+  const slug = encodeURIComponent(resolveYuqueArticleSlug(pageUrl) || pageAppData.articleSlug);
+  const bookId = encodeURIComponent(String(pageAppData.bookId));
+  return `https://${host}/api/docs/${slug}?book_id=${bookId}&merge_dynamic_data=false&mode=markdown`;
+}
+
+function resolveYuqueArticleSlug(pageUrl: string) {
+  try {
+    const parts = new URL(pageUrl).pathname.split('/').filter(Boolean);
+    return parts.length >= 3 ? parts[2] : '';
+  } catch {
+    return '';
+  }
+}
+
+function isValidCookiePair(name: string, value: string) {
+  return (
+    name.length > 0 &&
+    !/[\u0000-\u001f\u007f\s()<>@,;:\\"/[\]?={}]/.test(name) &&
+    !/[\u0000-\u001f\u007f]/.test(value)
+  );
+}
+
+function buildCookieHeader(cookies: unknown) {
+  if (!Array.isArray(cookies)) return '';
+  return cookies
+    .filter((cookie) => cookie && typeof cookie === 'object')
+    .map((cookie: any) => {
+      if (!cookie.name || typeof cookie.value === 'undefined') return '';
+      const name = String(cookie.name);
+      const value = String(cookie.value);
+      if (!isValidCookiePair(name, value)) return '';
+      return `${name}=${value}`;
+    })
+    .filter(Boolean)
+    .join('; ');
+}
+
+async function fetchYuqueMarkdown(
+  pageAppData: YuquePageAppData,
+  cookies: unknown,
+  pageUrl: string,
+): Promise<YuqueApiCapture | null> {
+  const apiUrl = buildYuqueApiUrl(pageAppData, pageUrl);
+  if (!apiUrl) return null;
+
+  const response = await fetch(apiUrl, {
+    method: 'GET',
+    headers: {
+      accept: 'application/json',
+      cookie: buildCookieHeader(cookies),
+    },
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    throw Object.assign(
+      new Error('Yuque document API requires authentication'),
+      { jobErrorType: 'LOCKED_CONTENT' },
+    );
+  }
+
+  if (!response.ok) return null;
+
+  const body = await response.json().catch(() => null);
+  const data = body?.data;
+  const contentMarkdown =
+    typeof data?.sourcecode === 'string' ? data.sourcecode.trim() : '';
+  if (contentMarkdown.length < 10) return null;
+
+  return {
+    title: cleanTitle(data?.title) || String(pageAppData.articleSlug),
+    contentMarkdown,
+    contentHtml: typeof data?.content === 'string' ? data.content : '',
+  };
 }
 
 function cleanTitle(raw: string | undefined | null) {
@@ -289,8 +436,39 @@ function resolveTitle(
 export async function captureProcessor(job: Job) {
   const { url, jobRecordId, pageHtml } = job.data;
   const pageHtmlMeta = parsePageHtmlMeta(job.data.pageHtmlMeta);
+  const pageAppData = parsePageAppData(job.data.pageAppData);
+  const hasUsablePageHtml =
+    typeof pageHtml === 'string' && pageHtml.trim().length >= 100;
 
-  if (!pageHtml || typeof pageHtml !== 'string' || pageHtml.trim().length < 100) {
+  if (isYuqueDocumentUrl(url) && pageAppData) {
+    let yuqueCapture: YuqueApiCapture | null = null;
+    try {
+      yuqueCapture = await fetchYuqueMarkdown(pageAppData, job.data.cookies, url);
+    } catch (err: any) {
+      if (err.jobErrorType === 'LOCKED_CONTENT') {
+        throw err;
+      }
+      yuqueCapture = null;
+    }
+
+    if (yuqueCapture) {
+      const item = await prisma.knowledgeItem.create({
+        data: {
+          title: yuqueCapture.title,
+          url,
+          contentHtml: yuqueCapture.contentHtml,
+          contentMarkdown: yuqueCapture.contentMarkdown,
+          source: 'yuque',
+          status: 'published',
+          jobId: jobRecordId,
+        },
+      });
+
+      return { itemId: item.id };
+    }
+  }
+
+  if (!hasUsablePageHtml) {
     throw Object.assign(
       new Error('Page snapshot was not received from the extension'),
       { jobErrorType: 'NO_SNAPSHOT' },
