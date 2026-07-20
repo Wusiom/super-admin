@@ -73,11 +73,28 @@ cd /opt/super-admin
 cat > .env << 'EOF'
 CLIENT_PORT=80
 SERVER_PORT=3001
-DATABASE_URL=file:/app/data/prod.db
-REDIS_HOST=redis
-REDIS_PORT=6379
+POSTGRES_DB=super_admin
+POSTGRES_USER=super_admin
+POSTGRES_PASSWORD=<使用秘密管理器生成的数据库密码>
+MINIO_ROOT_USER=<使用秘密管理器生成的访问密钥>
+MINIO_ROOT_PASSWORD=<使用秘密管理器生成的秘密密钥>
+OBJECT_STORAGE_BUCKET=learning-assistant
+JWT_ACCESS_SECRET=<至少32个字符的随机秘密>
+TOKEN_ENCRYPTION_KEY=<64位十六进制随机密钥>
+SMTP_FROM=noreply@example.com
+APP_PUBLIC_URL=https://your-domain.example
 EOF
 ```
+
+`POSTGRES_PASSWORD`、`MINIO_ROOT_USER`、`MINIO_ROOT_PASSWORD`、`JWT_ACCESS_SECRET` 和 `TOKEN_ENCRYPTION_KEY` 是 Compose 必填变量，生产值必须由 `.env` 或秘密管理器注入，不能提交到仓库。`docker compose config` 会先解析主配置中的必填变量；即使叠加 `docker-compose.test.yml`，也必须显式提供这些测试值。
+
+构建前先检查变量插值和 Compose 结构：
+
+```bash
+docker compose config --quiet
+```
+
+未使用 `.env` 时，需要在执行 `docker compose config` 的同一环境中显式注入上述五项必填变量。
 
 首次手动启动：
 
@@ -125,21 +142,25 @@ docker compose up -d --build
 
 ## 服务组成
 
-`docker-compose.yml` 启动 3 个服务：
+`docker-compose.yml` 包含 6 个长期服务和 1 个一次性初始化服务：
 
-- `redis`：BullMQ 队列依赖，数据保存在 `redis-data` volume。
-- `server`：NestJS API，容器内监听 `3000`，宿主机默认映射到 `3001`。
-- `client`：nginx 托管 Vue 静态资源，并把 `/api/` 反向代理到 `server:3000`。
+- `postgres`：PostgreSQL 16，应用主数据库，数据保存在 `postgres-data` volume。
+- `redis`：Redis 7，提供 BullMQ 队列，数据保存在 `redis-data` volume。
+- `minio`：S3 兼容对象存储，API 与管理控制台分别监听容器端口 `9000`、`9001`，数据保存在 `minio-data` volume。
+- `minio-init`：等待 MinIO 健康后创建 `OBJECT_STORAGE_BUCKET`，成功退出后 `server` 才会启动；它不常驻，也不持有独立 volume。
+- `mailpit`：开发/验收邮件服务，SMTP 与 Web UI 分别监听容器端口 `1025`、`8025`。生产环境如需真实发信，应将 server 的 SMTP 配置切换到正式邮件服务。
+- `server`：NestJS API，等待 PostgreSQL、Redis、MinIO、建桶任务和 Mailpit 就绪，容器内监听 `3000`，宿主机默认映射到 `3001`。
+- `client`：nginx 托管 Vue 静态资源，等待 server 健康后启动，并把 `/api/` 反向代理到 `server:3000`。
+
+持久化 volume 只有 `postgres-data`、`redis-data` 和 `minio-data`。生产迁移或清理前必须分别评估数据库、队列和对象文件的备份需求。
 
 生产访问一般走 `client` 的 80 端口：
 
 ```text
-用户浏览器 -> http://8.130.118.128/ -> client nginx -> /api -> server -> redis / SQLite
+用户浏览器 -> http://8.130.118.128/ -> client nginx -> /api -> server -> PostgreSQL / Redis / MinIO / SMTP
 ```
 
 `client` nginx 已配置 `client_max_body_size 5m`，与 NestJS 的 JSON body 上限保持一致。知识采集扩展发送较大的页面快照时，请求体应先到达后端并返回应用层认证或校验结果，而不是被 nginx 拦截为 `413 Request Entity Too Large`。
-
-SQLite 数据库位于容器内 `/app/data/prod.db`，通过 `server-data` volume 持久化。
 
 ## 验证部署
 
@@ -168,27 +189,28 @@ http://8.130.118.128/
 
 ## 备份数据库
 
-SQLite 数据库在 Docker volume 中。备份前建议确认服务状态：
+PostgreSQL 数据保存在 `postgres-data` volume。备份前建议确认服务健康，再通过 `pg_dump` 生成逻辑备份：
 
 ```bash
 cd /opt/super-admin
 docker compose ps
-docker cp super-admin-server-1:/app/data/prod.db ./backup-$(date +%Y%m%d).db
+docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > ./backup-$(date +%Y%m%d).sql
 ```
 
-恢复：
+恢复前先停止写入，并确认目标数据库允许覆盖：
 
 ```bash
 cd /opt/super-admin
-docker cp ./backup-20260529.db super-admin-server-1:/app/data/prod.db
-docker compose restart server
+docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < ./backup-20260529.sql
 ```
 
 定时备份示例：
 
 ```cron
-0 3 * * * docker cp super-admin-server-1:/app/data/prod.db /opt/backups/super-admin-$(date +\%Y\%m\%d).db
+0 3 * * * cd /opt/super-admin && docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > /opt/backups/super-admin-$(date +\%Y\%m\%d).sql
 ```
+
+`minio-data` 中的对象文件需要独立备份到另一个存储位置；`redis-data` 是否备份取决于是否需要保留待执行任务，不能用数据库备份替代。
 
 ## 日志与排查
 
@@ -199,6 +221,7 @@ cd /opt/super-admin
 docker compose logs -f --tail=100 server
 docker compose logs -f --tail=100 client
 docker compose logs -f --tail=100 redis
+docker compose logs --tail=100 postgres minio minio-init mailpit
 docker compose ps
 ```
 
@@ -211,7 +234,9 @@ docker compose ps
 | 前端无法访问 | `curl -fsS http://127.0.0.1/`，检查 `client` 容器日志 |
 | API 无法访问 | `curl -fsS http://127.0.0.1/api/tools`，检查 `server` 容器日志 |
 | Redis 连接失败 | `docker compose exec redis redis-cli PING` |
-| 数据库错误 | `docker compose logs server | grep -i error` |
+| PostgreSQL 连接失败 | `docker compose exec postgres pg_isready`，再检查 `postgres` 与 `server` 日志 |
+| 对象存储桶未创建 | 检查 `docker compose logs minio minio-init`，确认 MinIO 凭据和 `OBJECT_STORAGE_BUCKET` |
+| 邮件未送达 Mailpit | 检查 `mailpit` 健康状态和 server 的 `SMTP_HOST`、`SMTP_PORT` |
 | 内存不足 | 给 VPS 增加 swap，或继续减少 Docker 构建阶段的依赖安装量 |
 
 ## Chrome 扩展部署

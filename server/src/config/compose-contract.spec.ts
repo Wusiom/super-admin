@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
@@ -9,7 +10,15 @@ type ComposeService = {
   depends_on?: Record<string, { condition?: string }>;
   volumes?: string[];
   tmpfs?: string[] | string;
-  ports?: string[];
+  ports?: Array<
+    | string
+    | {
+        host_ip?: string;
+        published?: string;
+        target?: number;
+        protocol?: string;
+      }
+  >;
 };
 
 type ComposeDocument = {
@@ -24,6 +33,54 @@ function readCompose(fileName: string): ComposeDocument {
 
   // Docker Compose 的 !reset / !override 是 YAML 扩展标签；契约测试只关心其值。
   return parse(source.replace(/!(?:reset|override)\b/g, '')) as ComposeDocument;
+}
+
+function hasDockerCompose(): boolean {
+  try {
+    execFileSync('docker', ['compose', 'version'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function readMergedCompose(): ComposeDocument {
+  const output = execFileSync(
+    'docker',
+    [
+      'compose',
+      '-f',
+      'docker-compose.yml',
+      '-f',
+      'docker-compose.test.yml',
+      'config',
+      '--format',
+      'json',
+    ],
+    {
+      cwd: projectRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        POSTGRES_PASSWORD: 'test-postgres-password',
+        MINIO_ROOT_USER: 'test-minio-access-key',
+        MINIO_ROOT_PASSWORD: 'test-minio-secret-key',
+        JWT_ACCESS_SECRET: 'test-jwt-access-secret-at-least-32-characters',
+        TOKEN_ENCRYPTION_KEY:
+          '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    },
+  );
+
+  return JSON.parse(output) as ComposeDocument;
 }
 
 describe('Docker Compose 契约', () => {
@@ -51,11 +108,18 @@ describe('Docker Compose 契约', () => {
     },
   );
 
-  it('server 等待 PostgreSQL、Redis 与 MinIO 健康后再启动', () => {
+  it('server 等待 PostgreSQL、Redis、MinIO 健康且建桶完成后再启动', () => {
     expect(compose.services.server.depends_on).toMatchObject({
       postgres: { condition: 'service_healthy' },
       redis: { condition: 'service_healthy' },
       minio: { condition: 'service_healthy' },
+      'minio-init': { condition: 'service_completed_successfully' },
+    });
+  });
+
+  it('client 等待 server 健康后再启动', () => {
+    expect(compose.services.client.depends_on).toMatchObject({
+      server: { condition: 'service_healthy' },
     });
   });
 
@@ -120,6 +184,41 @@ describe('Docker Compose 契约', () => {
       for (const serviceName of ['postgres', 'redis', 'minio', 'mailpit']) {
         expect(testCompose.services[serviceName].ports).toEqual([]);
       }
+    });
+
+    it('使用 Docker Compose 真实合并语义隔离端口和状态数据', () => {
+      if (!hasDockerCompose()) {
+        const source = readFileSync(
+          resolve(projectRoot, 'docker-compose.test.yml'),
+          'utf8',
+        );
+        expect(source.match(/ports:\s*!reset \[\]/g)).toHaveLength(5);
+        expect(source.match(/volumes:\s*!reset \[\]/g)).toHaveLength(3);
+        expect(source).toContain('ports: !override');
+        return;
+      }
+
+      const merged = readMergedCompose();
+
+      for (const serviceName of ['postgres', 'redis', 'minio']) {
+        const service = merged.services[serviceName];
+        expect(service.ports ?? []).toEqual([]);
+        expect(service.volumes ?? []).toEqual([]);
+        expect(service.tmpfs).toBeDefined();
+      }
+
+      for (const serviceName of ['mailpit', 'server']) {
+        expect(merged.services[serviceName].ports ?? []).toEqual([]);
+      }
+
+      expect(merged.services.client.ports).toEqual([
+        expect.objectContaining({
+          host_ip: '127.0.0.1',
+          published: '18080',
+          target: 80,
+          protocol: 'tcp',
+        }),
+      ]);
     });
   });
 });
