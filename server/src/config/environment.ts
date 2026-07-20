@@ -28,15 +28,34 @@ const httpUrlSchema = z
     message: '仅支持 http 或 https 协议',
   });
 
+const secretStringSchema = (minimumLength: number, lengthMessage: string) =>
+  z
+    .string()
+    .min(minimumLength, lengthMessage)
+    .refine((value) => value === value.trim(), {
+      message: '不能包含首尾空白',
+    });
+
 const databaseUrlSchema = z
   .string()
   .min(1, '不能为空')
   .superRefine((value, context) => {
+    if (value !== value.trim()) {
+      context.addIssue({ code: 'custom', message: '不能包含首尾空白' });
+      return;
+    }
+
     if (value.startsWith('file:')) {
-      if (value.slice('file:'.length).trim().length === 0) {
+      const filePath = value.slice('file:'.length);
+      if (
+        filePath !== filePath.trim() ||
+        filePath.length === 0 ||
+        filePath.startsWith('//') ||
+        ['/', '.'].includes(filePath)
+      ) {
         context.addIssue({
           code: 'custom',
-          message: 'file: 地址必须包含数据库路径',
+          message: 'file: 地址必须包含具体数据库文件路径',
         });
       }
       return;
@@ -54,6 +73,14 @@ const databaseUrlSchema = z
           code: 'custom',
           message: 'PostgreSQL 地址必须包含主机名',
         });
+      } else if (
+        url.pathname.length <= 1 ||
+        decodeURIComponent(url.pathname.slice(1)).trim().length === 0
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'PostgreSQL 地址必须包含数据库路径',
+        });
       }
     } catch {
       context.addIssue({ code: 'custom', message: '必须是合法数据库地址' });
@@ -67,11 +94,20 @@ const objectStorageBucketSchema = z
   .regex(
     /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/,
     '只能包含小写字母、数字、点和连字符，且必须以字母或数字开头和结尾',
-  );
+  )
+  .refine((value) => !value.includes('..'), {
+    message: '不能包含连续的点',
+  })
+  .refine((value) => !value.includes('.-') && !value.includes('-.'), {
+    message: '点和连字符不能相邻',
+  })
+  .refine((value) => !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(value), {
+    message: '不能使用 IPv4 地址格式',
+  });
 
 export const environmentSchema = z.object({
   DATABASE_URL: databaseUrlSchema,
-  JWT_ACCESS_SECRET: z.string().min(32, '长度不能少于 32 个字符'),
+  JWT_ACCESS_SECRET: secretStringSchema(32, '长度不能少于 32 个字符'),
   TOKEN_ENCRYPTION_KEY: z
     .string()
     .regex(/^[0-9a-fA-F]{64}$/, '必须是 64 位十六进制字符串（32 字节）'),
@@ -79,8 +115,8 @@ export const environmentSchema = z.object({
   REDIS_PORT: portSchema,
   OBJECT_STORAGE_ENDPOINT: httpUrlSchema,
   OBJECT_STORAGE_BUCKET: objectStorageBucketSchema,
-  OBJECT_STORAGE_ACCESS_KEY: z.string().min(1, '不能为空'),
-  OBJECT_STORAGE_SECRET_KEY: z.string().min(1, '不能为空'),
+  OBJECT_STORAGE_ACCESS_KEY: secretStringSchema(1, '不能为空'),
+  OBJECT_STORAGE_SECRET_KEY: secretStringSchema(1, '不能为空'),
   SMTP_HOST: z.string().trim().min(1, '不能为空'),
   SMTP_PORT: portSchema,
   SMTP_SECURE: booleanSchema,

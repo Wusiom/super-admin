@@ -90,6 +90,80 @@ describe('validateEnvironment', () => {
   });
 
   it.each([
+    ['空主机文件地址', 'file://'],
+    ['根目录文件地址', 'file:/'],
+    ['当前目录文件地址', 'file:.'],
+    ['仅含空白的文件路径', 'file:   '],
+    [
+      '缺少数据库路径的 postgresql 地址',
+      'postgresql://postgres@localhost:5432',
+    ],
+    ['只有根路径的 postgres 地址', 'postgres://postgres@localhost:5432/'],
+    ['带前导空白的文件地址', ' file:./dev.db'],
+    ['带尾随空白的文件地址', 'file:./dev.db '],
+    [
+      '带前导空白的 PostgreSQL 地址',
+      ' postgresql://postgres@localhost:5432/learning_assistant',
+    ],
+    [
+      '带尾随空白的 PostgreSQL 地址',
+      'postgresql://postgres@localhost:5432/learning_assistant ',
+    ],
+  ])('拒绝非法 DATABASE_URL：%s', (_name, databaseUrl) => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        DATABASE_URL: databaseUrl,
+      }),
+    ).toThrow('DATABASE_URL');
+  });
+
+  it.each([
+    ['JWT_ACCESS_SECRET', ' '.repeat(32)],
+    ['JWT_ACCESS_SECRET', ` ${validEnvironment.JWT_ACCESS_SECRET}`],
+    ['JWT_ACCESS_SECRET', `${validEnvironment.JWT_ACCESS_SECRET} `],
+    ['OBJECT_STORAGE_ACCESS_KEY', ' '],
+    ['OBJECT_STORAGE_ACCESS_KEY', '   '],
+    ['OBJECT_STORAGE_ACCESS_KEY', ' local-access-key'],
+    ['OBJECT_STORAGE_ACCESS_KEY', 'local-access-key '],
+    ['OBJECT_STORAGE_SECRET_KEY', ' '],
+    ['OBJECT_STORAGE_SECRET_KEY', '   '],
+    ['OBJECT_STORAGE_SECRET_KEY', ' local-secret-key'],
+    ['OBJECT_STORAGE_SECRET_KEY', 'local-secret-key '],
+  ])('拒绝空白或首尾空白秘密：%s', (field, value) => {
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        [field]: value,
+      }),
+    ).toThrow(field);
+  });
+
+  it.each(['foo..bar', 'foo.-bar', 'foo-.bar', '192.168.1.1'])(
+    '拒绝非法 S3 存储桶名称：%s',
+    (bucket) => {
+      expect(() =>
+        validateEnvironment({
+          ...validEnvironment,
+          OBJECT_STORAGE_BUCKET: bucket,
+        }),
+      ).toThrow('OBJECT_STORAGE_BUCKET');
+    },
+  );
+
+  it.each(['learning-assistant.test', 'learning-assistant'])(
+    '接受合法 S3 存储桶名称：%s',
+    (bucket) => {
+      expect(
+        validateEnvironment({
+          ...validEnvironment,
+          OBJECT_STORAGE_BUCKET: bucket,
+        }).OBJECT_STORAGE_BUCKET,
+      ).toBe(bucket);
+    },
+  );
+
+  it.each([
     {
       field: 'JWT_ACCESS_SECRET',
       sentinel: 'JWT_SECRET_SENTINEL_7d91',
