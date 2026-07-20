@@ -19,6 +19,7 @@
       "@prisma/engines",
       "prisma",
       "@nestjs/core",
+      "argon2",
       "msgpackr-extract",
       "unrs-resolver"
     ]

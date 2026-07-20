@@ -24,11 +24,15 @@
     "vue-router": "^5.0.7"
   },
   "devDependencies": {
+    "@pinia/testing": "1.0.3",
     "@types/node": "^24.12.3",
     "@vitejs/plugin-vue": "^6.0.6",
+    "@vue/test-utils": "2.4.11",
     "@vue/tsconfig": "^0.9.1",
+    "happy-dom": "20.11.0",
     "typescript": "~6.0.2",
     "vite": "^8.0.12",
+    "vitest": "4.1.10",
     "vue-tsc": "^3.2.8"
   }
 }
