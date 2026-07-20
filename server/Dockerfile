@@ -15,9 +15,9 @@ COPY pnpm-workspace.yaml pnpm-lock.yaml package.json .npmrc ./
 COPY server/package.json server/
 # BuildKit cache mount: pnpm store 持久化到 VPS 磁盘，跨构建复用
 RUN --mount=type=cache,target=/pnpm-store pnpm install --store-dir /pnpm-store --frozen-lockfile --filter server --ignore-scripts
-RUN --mount=type=cache,target=/pnpm-store pnpm rebuild --store-dir /pnpm-store @prisma/client prisma @prisma/engines @nestjs/core
+RUN --mount=type=cache,target=/pnpm-store pnpm rebuild --store-dir /pnpm-store @prisma/client prisma @prisma/engines @nestjs/core argon2
 COPY server/ server/
-ENV DATABASE_URL=file:/tmp/prisma-build.db
+ENV DATABASE_URL=postgresql://build:build@localhost:5432/build
 RUN pnpm --filter server exec prisma generate
 RUN pnpm --filter server build
 
@@ -27,13 +27,13 @@ COPY pnpm-workspace.yaml pnpm-lock.yaml package.json .npmrc ./
 COPY server/package.json server/
 # 与 build 阶段共享同一个 cache mount，首次构建后几乎零下载
 RUN --mount=type=cache,target=/pnpm-store pnpm install --store-dir /pnpm-store --frozen-lockfile --prod --filter server --ignore-scripts
-RUN --mount=type=cache,target=/pnpm-store pnpm rebuild --store-dir /pnpm-store prisma @prisma/client @prisma/engines
+RUN --mount=type=cache,target=/pnpm-store pnpm rebuild --store-dir /pnpm-store prisma @prisma/client @prisma/engines argon2
 COPY --from=build /app/server/dist ./server/dist
 COPY --from=build /app/server/prisma ./server/prisma
 RUN cd server && npx prisma generate
 
 ENV NODE_ENV=production
-ENV DATABASE_URL="file:/app/data/dev.db"
+ENV DATABASE_URL="postgresql://runtime:runtime@postgres:5432/runtime"
 EXPOSE 3000
 WORKDIR /app/server
 CMD sh -c "npx prisma migrate deploy && node dist/main"

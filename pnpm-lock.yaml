@@ -253,6 +253,9 @@ importers:
       typescript-eslint:
         specifier: ^8.20.0
         version: 8.60.0(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
 
 packages:
 
