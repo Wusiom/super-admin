@@ -88,4 +88,50 @@ describe('validateEnvironment', () => {
         .DATABASE_URL,
     ).toBe(databaseUrl);
   });
+
+  it.each([
+    {
+      field: 'JWT_ACCESS_SECRET',
+      sentinel: 'JWT_SECRET_SENTINEL_7d91',
+      value: 'JWT_SECRET_SENTINEL_7d91',
+    },
+    {
+      field: 'TOKEN_ENCRYPTION_KEY',
+      sentinel: 'TOKEN_KEY_SENTINEL_f4c2',
+      value: 'TOKEN_KEY_SENTINEL_f4c2',
+    },
+    {
+      field: 'OBJECT_STORAGE_ACCESS_KEY',
+      sentinel: 'STORAGE_ACCESS_SENTINEL_18a6',
+      value: { marker: 'STORAGE_ACCESS_SENTINEL_18a6' },
+    },
+    {
+      field: 'OBJECT_STORAGE_SECRET_KEY',
+      sentinel: 'STORAGE_SECRET_SENTINEL_c305',
+      value: { marker: 'STORAGE_SECRET_SENTINEL_c305' },
+    },
+  ])(
+    '$field 校验失败时不在错误中泄露秘密原值',
+    ({ field, sentinel, value }) => {
+      const raw: Record<string, unknown> = {
+        ...validEnvironment,
+        [field]: value,
+      };
+      const completeValue =
+        typeof value === 'string' ? value : JSON.stringify(value);
+
+      let capturedError: unknown;
+      try {
+        validateEnvironment(raw);
+      } catch (error) {
+        capturedError = error;
+      }
+
+      expect(capturedError).toBeInstanceOf(Error);
+      const message = (capturedError as Error).message;
+      expect(message).toContain(field);
+      expect(message).not.toContain(sentinel);
+      expect(message).not.toContain(completeValue);
+    },
+  );
 });
