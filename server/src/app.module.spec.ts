@@ -30,8 +30,17 @@ describe('AppModule', () => {
       .useValue(bullMq)
       .compile();
 
-    await moduleRef.init();
-    expect(moduleRef.get(AppModule)).toBeInstanceOf(AppModule);
-    await moduleRef.close();
+    try {
+      expect(moduleRef.get(PrismaService)).toBe(prisma);
+      expect(moduleRef.get(BullMqService)).toBe(bullMq);
+
+      await moduleRef.init();
+      expect(moduleRef.get(AppModule)).toBeInstanceOf(AppModule);
+      expect(prisma.apiToken.findFirst).toHaveBeenCalledTimes(1);
+      expect(prisma.tool.upsert).toHaveBeenCalledTimes(1);
+      expect(bullMq.registerProcessor).toHaveBeenCalledTimes(1);
+    } finally {
+      await moduleRef.close();
+    }
   });
 });
