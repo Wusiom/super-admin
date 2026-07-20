@@ -11,7 +11,7 @@ push 到 main
   -> VPS 进入 /opt/super-admin
   -> git fetch origin main
   -> git reset --hard origin/main
-  -> COMPOSE_PARALLEL_LIMIT=1 docker compose build
+  -> COMPOSE_PARALLEL_LIMIT=1 docker compose build（生产 .env 已启用生产覆盖）
   -> docker compose up -d --no-build
   -> docker compose ps
   -> curl -fsS http://127.0.0.1/
@@ -48,6 +48,7 @@ http://8.130.118.128/
 
 - VPS / 云服务器，当前生产机器为阿里云 ECS，Ubuntu 22.04 64 位。
 - Docker 和 Docker Compose 已安装。
+- 后续持续集成环境也应安装 Docker Compose，使真实合并契约始终执行；未安装时该项测试会明确标记为跳过，静态标签契约仍会执行。
 - VPS 上项目目录固定为 `/opt/super-admin`。
 - GitHub 仓库配置以下 Secrets：
   - `VPS_HOST`
@@ -71,22 +72,31 @@ cd /opt/super-admin
 
 ```bash
 cat > .env << 'EOF'
+COMPOSE_FILE=docker-compose.yml:docker-compose.production.yml
 CLIENT_PORT=80
-SERVER_PORT=3001
 POSTGRES_DB=super_admin
 POSTGRES_USER=super_admin
 POSTGRES_PASSWORD=<使用秘密管理器生成的数据库密码>
-MINIO_ROOT_USER=<使用秘密管理器生成的访问密钥>
-MINIO_ROOT_PASSWORD=<使用秘密管理器生成的秘密密钥>
+MINIO_ROOT_USER=<仅用于初始化的根访问密钥>
+MINIO_ROOT_PASSWORD=<仅用于初始化的根秘密密钥>
 OBJECT_STORAGE_BUCKET=learning-assistant
+OBJECT_STORAGE_ACCESS_KEY=<server 使用的桶级访问密钥>
+OBJECT_STORAGE_SECRET_KEY=<server 使用的桶级秘密密钥>
 JWT_ACCESS_SECRET=<至少32个字符的随机秘密>
 TOKEN_ENCRYPTION_KEY=<64位十六进制随机密钥>
+SMTP_HOST=smtp.example.com
+SMTP_PORT=465
+SMTP_SECURE=true
 SMTP_FROM=noreply@example.com
 APP_PUBLIC_URL=https://your-domain.example
 EOF
 ```
 
-`POSTGRES_PASSWORD`、`MINIO_ROOT_USER`、`MINIO_ROOT_PASSWORD`、`JWT_ACCESS_SECRET` 和 `TOKEN_ENCRYPTION_KEY` 是 Compose 必填变量，生产值必须由 `.env` 或秘密管理器注入，不能提交到仓库。`docker compose config` 会先解析主配置中的必填变量；即使叠加 `docker-compose.test.yml`，也必须显式提供这些测试值。
+`POSTGRES_PASSWORD` 会直接拼入 PostgreSQL URL，只能使用 URL 非保留字符：大小写字母、数字、点、下划线、波浪号和连字符。不要在该值中使用 `@`、`:`、`/`、`?`、`#` 或空白。
+
+`POSTGRES_PASSWORD`、两项 MinIO 根凭据、两项对象存储应用凭据、`JWT_ACCESS_SECRET` 和 `TOKEN_ENCRYPTION_KEY` 是主 Compose 的必填变量。MinIO 根凭据只供 `minio-init` 创建桶、应用用户和桶级策略；`server` 只能使用 `OBJECT_STORAGE_ACCESS_KEY` 与 `OBJECT_STORAGE_SECRET_KEY`，不能使用根凭据。
+
+生产环境还必须设置四项 SMTP 变量。`COMPOSE_FILE` 让生产部署自动叠加 `docker-compose.production.yml`：Mailpit 不会启动，server 对 Mailpit 的依赖变成非必需，并连接外部 SMTP。所有生产秘密必须由 `.env` 或秘密管理器注入，不能提交到仓库。
 
 构建前先检查变量插值和 Compose 结构：
 
@@ -94,7 +104,11 @@ EOF
 docker compose config --quiet
 ```
 
-未使用 `.env` 时，需要在执行 `docker compose config` 的同一环境中显式注入上述五项必填变量。
+未使用 `.env` 时，需要在执行 `docker compose config` 的同一环境中显式注入全部必填变量，并明确指定生产覆盖文件：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.production.yml config --quiet
+```
 
 首次手动启动：
 
@@ -147,12 +161,14 @@ docker compose up -d --build
 - `postgres`：PostgreSQL 16，应用主数据库，数据保存在 `postgres-data` volume。
 - `redis`：Redis 7，提供 BullMQ 队列，数据保存在 `redis-data` volume。
 - `minio`：S3 兼容对象存储，API 与管理控制台分别监听容器端口 `9000`、`9001`，数据保存在 `minio-data` volume。
-- `minio-init`：等待 MinIO 健康后创建 `OBJECT_STORAGE_BUCKET`，成功退出后 `server` 才会启动；它不常驻，也不持有独立 volume。
-- `mailpit`：开发/验收邮件服务，SMTP 与 Web UI 分别监听容器端口 `1025`、`8025`。生产环境如需真实发信，应将 server 的 SMTP 配置切换到正式邮件服务。
-- `server`：NestJS API，等待 PostgreSQL、Redis、MinIO、建桶任务和 Mailpit 就绪，容器内监听 `3000`，宿主机默认映射到 `3001`。
+- `minio-init`：等待 MinIO 健康后创建 `OBJECT_STORAGE_BUCKET`，再创建独立应用用户、桶级最小权限策略并完成绑定；成功退出后 `server` 才会启动。重复运行时，`mc admin user add` 会更新已有用户密码，`mc admin policy create` 会覆盖已有策略，因此既幂等又支持密钥轮换。它不常驻，也不持有独立数据卷。
+- `mailpit`：默认本地开发邮件服务，SMTP 与网页界面分别监听容器端口 `1025`、`8025`。生产覆盖将其放入未启用的 `local-mailpit` 配置组，server 改用外部 SMTP。
+- `server`：NestJS API，默认本地开发时等待 PostgreSQL、Redis、MinIO、建桶任务和 Mailpit 就绪，容器内监听 `3000`；生产覆盖下 Mailpit 不是必需依赖。
 - `client`：nginx 托管 Vue 静态资源，等待 server 健康后启动，并把 `/api/` 反向代理到 `server:3000`。
 
-持久化 volume 只有 `postgres-data`、`redis-data` 和 `minio-data`。生产迁移或清理前必须分别评估数据库、队列和对象文件的备份需求。
+主配置默认只把 `client` 的端口发布到宿主机。PostgreSQL、Redis、MinIO、Mailpit 和 server 只在 Compose 内部网络可达，避免绕过 nginx 或把基础设施暴露到公网。如需本地调试这些端口，应使用显式开发覆盖，并只绑定到 `127.0.0.1`。
+
+持久化数据卷只有 `postgres-data`、`redis-data` 和 `minio-data`。生产迁移或清理前必须分别评估数据库、队列和对象文件的备份需求。
 
 生产访问一般走 `client` 的 80 端口：
 
@@ -189,26 +205,52 @@ http://8.130.118.128/
 
 ## 备份数据库
 
-PostgreSQL 数据保存在 `postgres-data` volume。备份前建议确认服务健康，再通过 `pg_dump` 生成逻辑备份：
+PostgreSQL 数据保存在 `postgres-data` 数据卷。执行人工备份时先停止 server，避免业务在备份窗口继续写入；使用带清理语句的逻辑备份，备份结束后重新启动 server：
 
 ```bash
 cd /opt/super-admin
 docker compose ps
-docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > ./backup-$(date +%Y%m%d).sql
+docker compose stop server
+BACKUP_FILE="./backup-$(date +%Y%m%d-%H%M%S).sql"
+docker compose exec -T postgres sh -ec 'pg_dump --clean --if-exists --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > "$BACKUP_FILE"
+test -s "$BACKUP_FILE"
+tail -n 20 "$BACKUP_FILE" | grep -q 'PostgreSQL database dump complete'
+docker compose start server
+curl -fsS http://127.0.0.1/api/tools
 ```
 
-恢复前先停止写入，并确认目标数据库允许覆盖：
+如果备份命令或文件验证失败，也必须先执行 `docker compose start server` 恢复服务，再排查原因。定时任务应封装同样的停写、文件验证、恢复服务和失败告警流程，不能只运行一条无人检查的 `pg_dump`。
+
+恢复会覆盖目标数据库。先验证恢复文件，停止 server，并额外备份当前数据库作为回滚点；随后删除并重建目标数据库，使用单事务和 `ON_ERROR_STOP`，任何 SQL 错误都会终止且不会留下半恢复事务：
 
 ```bash
 cd /opt/super-admin
-docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < ./backup-20260529.sql
+RESTORE_FILE=./backup-20260529.sql
+ROLLBACK_FILE="./pre-restore-$(date +%Y%m%d-%H%M%S).sql"
+test -s "$RESTORE_FILE"
+tail -n 20 "$RESTORE_FILE" | grep -q 'PostgreSQL database dump complete'
+docker compose stop server
+docker compose exec -T postgres sh -ec 'pg_dump --clean --if-exists --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > "$ROLLBACK_FILE"
+test -s "$ROLLBACK_FILE"
+tail -n 20 "$ROLLBACK_FILE" | grep -q 'PostgreSQL database dump complete'
+docker compose exec -T postgres sh -ec 'dropdb --if-exists -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+docker compose exec -T postgres sh -ec 'psql -v ON_ERROR_STOP=1 --single-transaction -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < "$RESTORE_FILE"
+docker compose exec -T postgres sh -ec 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1"'
+docker compose start server
+curl -fsS http://127.0.0.1/api/tools
 ```
 
-定时备份示例：
+恢复或健康验证失败时，不要启动 server。明确执行以下回滚，再验证数据库和接口：
 
-```cron
-0 3 * * * cd /opt/super-admin && docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > /opt/backups/super-admin-$(date +\%Y\%m\%d).sql
+```bash
+docker compose exec -T postgres sh -ec 'dropdb --if-exists -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+docker compose exec -T postgres sh -ec 'psql -v ON_ERROR_STOP=1 --single-transaction -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < "$ROLLBACK_FILE"
+docker compose exec -T postgres sh -ec 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT 1"'
+docker compose start server
+curl -fsS http://127.0.0.1/api/tools
 ```
+
+保留原恢复文件、回滚文件和失败日志，确认业务数据无误后再清理。如果回滚导入或验证仍失败，保持 server 停止并升级处理，不要恢复业务流量。
 
 `minio-data` 中的对象文件需要独立备份到另一个存储位置；`redis-data` 是否备份取决于是否需要保留待执行任务，不能用数据库备份替代。
 

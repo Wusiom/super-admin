@@ -8,8 +8,6 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    ports:
-      - '${POSTGRES_PORT:-5432}:5432'
     healthcheck:
       test:
         ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
@@ -21,8 +19,6 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - '${REDIS_PORT:-6379}:6379'
     volumes:
       - redis-data:/data
     healthcheck:
@@ -40,9 +36,6 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?请在 .env 中设置 MINIO_ROOT_PASSWORD}
     volumes:
       - minio-data:/data
-    ports:
-      - '${MINIO_API_PORT:-9000}:9000'
-      - '${MINIO_CONSOLE_PORT:-9001}:9001'
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
       interval: 5s
@@ -60,19 +53,38 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?请在 .env 中设置 MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?请在 .env 中设置 MINIO_ROOT_PASSWORD}
       OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-learning-assistant}
+      OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:?请在 .env 中设置 OBJECT_STORAGE_ACCESS_KEY}
+      OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:?请在 .env 中设置 OBJECT_STORAGE_SECRET_KEY}
     entrypoint:
       - /bin/sh
       - -ec
       - |
         mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
         mc mb --ignore-existing "local/$${OBJECT_STORAGE_BUCKET}"
+        cat > /tmp/learning-assistant-policy.json <<EOF
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": ["s3:GetBucketLocation", "s3:ListBucket", "s3:ListBucketMultipartUploads"],
+              "Resource": ["arn:aws:s3:::$${OBJECT_STORAGE_BUCKET}"]
+            },
+            {
+              "Effect": "Allow",
+              "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+              "Resource": ["arn:aws:s3:::$${OBJECT_STORAGE_BUCKET}/*"]
+            }
+          ]
+        }
+        EOF
+        mc admin user add local "$${OBJECT_STORAGE_ACCESS_KEY}" "$${OBJECT_STORAGE_SECRET_KEY}"
+        mc admin policy create local learning-assistant-app /tmp/learning-assistant-policy.json
+        mc admin policy attach local learning-assistant-app --user "$${OBJECT_STORAGE_ACCESS_KEY}"
 
   mailpit:
     image: axllent/mailpit:v1.27
     restart: unless-stopped
-    ports:
-      - '${MAILPIT_SMTP_PORT:-1025}:1025'
-      - '${MAILPIT_WEB_PORT:-8025}:8025'
     healthcheck:
       test: ['CMD', '/mailpit', 'readyz']
       interval: 5s
@@ -103,15 +115,13 @@ services:
       REDIS_PORT: '6379'
       OBJECT_STORAGE_ENDPOINT: http://minio:9000
       OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-learning-assistant}
-      OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:?请在 .env 中设置 MINIO_ROOT_USER}
-      OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?请在 .env 中设置 MINIO_ROOT_PASSWORD}
-      SMTP_HOST: mailpit
-      SMTP_PORT: '1025'
-      SMTP_SECURE: 'false'
+      OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:?请在 .env 中设置 OBJECT_STORAGE_ACCESS_KEY}
+      OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:?请在 .env 中设置 OBJECT_STORAGE_SECRET_KEY}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_FROM: ${SMTP_FROM:-noreply@example.test}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost}
-    ports:
-      - '${SERVER_PORT:-3001}:3000'
     healthcheck:
       test:
         [

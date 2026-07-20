@@ -43,6 +43,8 @@ services:
       MINIO_ROOT_USER: test-minio-access-key
       MINIO_ROOT_PASSWORD: test-minio-secret-key
       OBJECT_STORAGE_BUCKET: learning-assistant-test
+      OBJECT_STORAGE_ACCESS_KEY: test-app-access-key
+      OBJECT_STORAGE_SECRET_KEY: test-app-secret-key
 
   mailpit:
     ports: !reset []
@@ -60,8 +62,8 @@ services:
       REDIS_PORT: '6379'
       OBJECT_STORAGE_ENDPOINT: http://minio:9000
       OBJECT_STORAGE_BUCKET: learning-assistant-test
-      OBJECT_STORAGE_ACCESS_KEY: test-minio-access-key
-      OBJECT_STORAGE_SECRET_KEY: test-minio-secret-key
+      OBJECT_STORAGE_ACCESS_KEY: test-app-access-key
+      OBJECT_STORAGE_SECRET_KEY: test-app-secret-key
       SMTP_HOST: mailpit
       SMTP_PORT: '1025'
       SMTP_SECURE: 'false'

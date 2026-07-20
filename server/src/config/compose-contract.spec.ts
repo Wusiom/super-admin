@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
 
@@ -7,7 +7,9 @@ type ComposeService = {
   image?: string;
   environment?: Record<string, string>;
   healthcheck?: { test?: string[]; interval?: string };
-  depends_on?: Record<string, { condition?: string }>;
+  depends_on?: Record<string, { condition?: string; required?: boolean }>;
+  entrypoint?: string[];
+  profiles?: string[];
   volumes?: string[];
   tmpfs?: string[] | string;
   ports?: Array<
@@ -33,6 +35,23 @@ function readCompose(fileName: string): ComposeDocument {
 
   // Docker Compose 的 !reset / !override 是 YAML 扩展标签；契约测试只关心其值。
   return parse(source.replace(/!(?:reset|override)\b/g, '')) as ComposeDocument;
+}
+
+function readServiceSource(fileName: string, serviceName: string): string {
+  const source = readFileSync(resolve(projectRoot, fileName), 'utf8');
+  const escapedName = serviceName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = source.match(
+    new RegExp(
+      `^  ${escapedName}:\\r?\\n([\\s\\S]*?)(?=^  [a-z][\\w-]*:\\r?$|^volumes:\\r?$|(?![\\s\\S]))`,
+      'm',
+    ),
+  );
+
+  if (!match) {
+    throw new Error(`Compose 服务不存在：${serviceName}`);
+  }
+
+  return match[0];
 }
 
 function hasDockerCompose(): boolean {
@@ -71,6 +90,8 @@ function readMergedCompose(): ComposeDocument {
         POSTGRES_PASSWORD: 'test-postgres-password',
         MINIO_ROOT_USER: 'test-minio-access-key',
         MINIO_ROOT_PASSWORD: 'test-minio-secret-key',
+        OBJECT_STORAGE_ACCESS_KEY: 'test-app-access-key',
+        OBJECT_STORAGE_SECRET_KEY: 'test-app-secret-key',
         JWT_ACCESS_SECRET: 'test-jwt-access-secret-at-least-32-characters',
         TOKEN_ENCRYPTION_KEY:
           '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
@@ -153,6 +174,90 @@ describe('Docker Compose 契约', () => {
     );
   });
 
+  it('主配置只向宿主机发布 client 端口', () => {
+    for (const serviceName of [
+      'postgres',
+      'redis',
+      'minio',
+      'mailpit',
+      'server',
+    ]) {
+      expect(compose.services[serviceName].ports ?? []).toEqual([]);
+    }
+    expect(compose.services.client.ports).toEqual(['${CLIENT_PORT:-80}:80']);
+  });
+
+  it('server 使用独立对象存储凭据，MinIO 初始化创建桶级应用用户与策略', () => {
+    expect(compose.services.server.environment).toMatchObject({
+      OBJECT_STORAGE_ACCESS_KEY:
+        '${OBJECT_STORAGE_ACCESS_KEY:?请在 .env 中设置 OBJECT_STORAGE_ACCESS_KEY}',
+      OBJECT_STORAGE_SECRET_KEY:
+        '${OBJECT_STORAGE_SECRET_KEY:?请在 .env 中设置 OBJECT_STORAGE_SECRET_KEY}',
+    });
+    expect(JSON.stringify(compose.services.server.environment)).not.toContain(
+      'MINIO_ROOT',
+    );
+    expect(compose.services['minio-init'].environment).toMatchObject({
+      OBJECT_STORAGE_ACCESS_KEY:
+        '${OBJECT_STORAGE_ACCESS_KEY:?请在 .env 中设置 OBJECT_STORAGE_ACCESS_KEY}',
+      OBJECT_STORAGE_SECRET_KEY:
+        '${OBJECT_STORAGE_SECRET_KEY:?请在 .env 中设置 OBJECT_STORAGE_SECRET_KEY}',
+    });
+
+    const initCommand = compose.services['minio-init'].entrypoint?.at(-1) ?? '';
+    expect(initCommand).toContain('mc mb --ignore-existing');
+    expect(initCommand).toContain(
+      'mc admin user add local "$${OBJECT_STORAGE_ACCESS_KEY}" "$${OBJECT_STORAGE_SECRET_KEY}"',
+    );
+    expect(initCommand).toContain(
+      'mc admin policy create local learning-assistant-app /tmp/learning-assistant-policy.json',
+    );
+    expect(initCommand).not.toContain('mc admin user info');
+    expect(initCommand).not.toContain('mc admin policy info');
+    expect(initCommand).toContain('mc admin policy attach');
+    expect(initCommand).toContain('arn:aws:s3:::$${OBJECT_STORAGE_BUCKET}');
+    expect(initCommand).toContain('arn:aws:s3:::$${OBJECT_STORAGE_BUCKET}/*');
+  });
+
+  it('.env.example 的 Compose 默认 SMTP 主机指向 Mailpit', () => {
+    const exampleEnvironment = readFileSync(
+      resolve(projectRoot, '.env.example'),
+      'utf8',
+    );
+    expect(exampleEnvironment).toMatch(/^SMTP_HOST=mailpit$/m);
+  });
+
+  it('SMTP 配置可由环境覆盖，生产覆盖禁用 Mailpit 强依赖', () => {
+    expect(compose.services.server.environment).toMatchObject({
+      SMTP_HOST: '${SMTP_HOST:-mailpit}',
+      SMTP_PORT: '${SMTP_PORT:-1025}',
+      SMTP_SECURE: '${SMTP_SECURE:-false}',
+      SMTP_FROM: '${SMTP_FROM:-noreply@example.test}',
+    });
+
+    const productionPath = resolve(
+      projectRoot,
+      'docker-compose.production.yml',
+    );
+    expect(existsSync(productionPath)).toBe(true);
+    if (!existsSync(productionPath)) {
+      return;
+    }
+
+    const production = readCompose('docker-compose.production.yml');
+    expect(production.services.mailpit.profiles).toEqual(['local-mailpit']);
+    expect(production.services.server.depends_on?.mailpit).toMatchObject({
+      condition: 'service_healthy',
+      required: false,
+    });
+    expect(production.services.server.environment).toMatchObject({
+      SMTP_HOST: '${SMTP_HOST:?生产环境必须设置 SMTP_HOST}',
+      SMTP_PORT: '${SMTP_PORT:?生产环境必须设置 SMTP_PORT}',
+      SMTP_SECURE: '${SMTP_SECURE:?生产环境必须设置 SMTP_SECURE}',
+      SMTP_FROM: '${SMTP_FROM:?生产环境必须设置 SMTP_FROM}',
+    });
+  });
+
   describe('测试覆盖', () => {
     const testCompose = readCompose('docker-compose.test.yml');
 
@@ -186,18 +291,28 @@ describe('Docker Compose 契约', () => {
       }
     });
 
-    it('使用 Docker Compose 真实合并语义隔离端口和状态数据', () => {
-      if (!hasDockerCompose()) {
-        const source = readFileSync(
-          resolve(projectRoot, 'docker-compose.test.yml'),
-          'utf8',
+    it('静态覆盖标签位于对应服务的端口和数据卷字段', () => {
+      for (const serviceName of ['postgres', 'redis', 'minio']) {
+        const serviceSource = readServiceSource(
+          'docker-compose.test.yml',
+          serviceName,
         );
-        expect(source.match(/ports:\s*!reset \[\]/g)).toHaveLength(5);
-        expect(source.match(/volumes:\s*!reset \[\]/g)).toHaveLength(3);
-        expect(source).toContain('ports: !override');
-        return;
+        expect(serviceSource).toMatch(/^    volumes: !reset \[\]$/m);
+        expect(serviceSource).toMatch(/^    ports: !reset \[\]$/m);
       }
 
+      for (const serviceName of ['mailpit', 'server']) {
+        expect(
+          readServiceSource('docker-compose.test.yml', serviceName),
+        ).toMatch(/^    ports: !reset \[\]$/m);
+      }
+      expect(readServiceSource('docker-compose.test.yml', 'client')).toMatch(
+        /^    ports: !override$/m,
+      );
+    });
+
+    const realMergeTest = hasDockerCompose() ? it : it.skip;
+    realMergeTest('使用 Docker Compose 真实合并语义隔离端口和状态数据', () => {
       const merged = readMergedCompose();
 
       for (const serviceName of ['postgres', 'redis', 'minio']) {

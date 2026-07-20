@@ -1,0 +1,15 @@
+services:
+  mailpit:
+    profiles:
+      - local-mailpit
+
+  server:
+    depends_on:
+      mailpit:
+        condition: service_healthy
+        required: false
+    environment:
+      SMTP_HOST: ${SMTP_HOST:?生产环境必须设置 SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:?生产环境必须设置 SMTP_PORT}
+      SMTP_SECURE: ${SMTP_SECURE:?生产环境必须设置 SMTP_SECURE}
+      SMTP_FROM: ${SMTP_FROM:?生产环境必须设置 SMTP_FROM}
