@@ -93,6 +93,12 @@ describe('validateEnvironment', () => {
     ['空主机文件地址', 'file://'],
     ['根目录文件地址', 'file:/'],
     ['当前目录文件地址', 'file:.'],
+    ['当前目录结尾的文件地址', 'file:./'],
+    ['父目录结尾的文件地址', 'file:../'],
+    ['父目录本身的文件地址', 'file:..'],
+    ['只有查询参数的文件地址', 'file:?connection_limit=1'],
+    ['只有片段的文件地址', 'file:#fragment'],
+    ['反斜杠目录结尾的文件地址', 'file:.\\data\\'],
     ['仅含空白的文件路径', 'file:   '],
     [
       '缺少数据库路径的 postgresql 地址',
@@ -116,6 +122,20 @@ describe('validateEnvironment', () => {
         DATABASE_URL: databaseUrl,
       }),
     ).toThrow('DATABASE_URL');
+  });
+
+  it.each([
+    'file:./dev.db',
+    'file:/app/data/dev.db',
+    'file:../data/dev.db',
+    'file:./dev.db?connection_limit=1',
+  ])('接受包含具体 SQLite 文件的 DATABASE_URL：%s', (databaseUrl) => {
+    expect(
+      validateEnvironment({
+        ...validEnvironment,
+        DATABASE_URL: databaseUrl,
+      }).DATABASE_URL,
+    ).toBe(databaseUrl);
   });
 
   it.each([

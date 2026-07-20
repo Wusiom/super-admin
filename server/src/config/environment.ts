@@ -46,12 +46,20 @@ const databaseUrlSchema = z
     }
 
     if (value.startsWith('file:')) {
-      const filePath = value.slice('file:'.length);
+      const fileReference = value.slice('file:'.length);
+      const parameterStart = fileReference.search(/[?#]/);
+      const filePath =
+        parameterStart === -1
+          ? fileReference
+          : fileReference.slice(0, parameterStart);
+      const lastPathSegment = filePath.split(/[\\/]/).at(-1);
       if (
         filePath !== filePath.trim() ||
         filePath.length === 0 ||
         filePath.startsWith('//') ||
-        ['/', '.'].includes(filePath)
+        /[\\/]$/.test(filePath) ||
+        !lastPathSegment ||
+        ['.', '..'].includes(lastPathSegment)
       ) {
         context.addIssue({
           code: 'custom',
