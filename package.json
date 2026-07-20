@@ -3,7 +3,12 @@
   "private": true,
   "scripts": {
     "dev": "concurrently \"pnpm --filter server dev\" \"pnpm --filter client dev\"",
-    "build": "pnpm --filter server build && pnpm --filter client build"
+    "build": "pnpm --filter server build && pnpm --filter client build",
+    "test:server": "node_modules\\.bin\\jest.CMD --config server/package.json --runInBand",
+    "test:extension": "node --test extension/*.test.js",
+    "test": "pnpm run test:server && pnpm run test:extension",
+    "db:validate": "set \"DATABASE_URL=file:./dev.db\" && node_modules\\.bin\\prisma.CMD validate --schema server/prisma/schema.prisma",
+    "db:generate": "set \"DATABASE_URL=file:./dev.db\" && node_modules\\.bin\\prisma.CMD generate --schema server/prisma/schema.prisma"
   },
   "devDependencies": {
     "concurrently": "^9.0.0"
