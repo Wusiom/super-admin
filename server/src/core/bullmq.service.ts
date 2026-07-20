@@ -101,15 +101,15 @@ export class BullMqService implements OnModuleDestroy {
   }
 
   async retryJob(jobId: string, toolKey: string): Promise<void> {
+    const queueName = `tool-${toolKey}-capture`;
+    const queue = this.queues.get(queueName);
+    if (!queue) throw new Error(`Queue not found: ${queueName}`);
+
     // 将旧记录重置为 pending
     const existing = await this.prisma.job.update({
       where: { id: Number(jobId) },
       data: { status: 'pending', error: null, bullmqJobId: null },
     });
-
-    const queueName = `tool-${toolKey}-capture`;
-    const queue = this.queues.get(queueName);
-    if (!queue) throw new Error(`Queue not found: ${queueName}`);
 
     const input = existing.input ? JSON.parse(existing.input) : {};
     await queue.add('capture', {
