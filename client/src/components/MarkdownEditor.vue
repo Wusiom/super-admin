@@ -1,29 +1,29 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { MdEditor } from 'md-editor-v3'
-import 'md-editor-v3/lib/style.css'
+import { computed } from 'vue';
+import { MdEditor } from 'md-editor-v3';
+import 'md-editor-v3/lib/style.css';
 
 interface Props {
-  modelValue: string
-  height?: string
+  modelValue: string;
+  height?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  height: '60vh',
-})
+  height: '80vh',
+});
 
 const emit = defineEmits<{
-  'update:modelValue': [value: string]
-  save: []
-}>()
+  'update:modelValue': [value: string];
+  save: [];
+}>();
 
 const model = computed({
   get: () => props.modelValue,
   set: (v) => emit('update:modelValue', v),
-})
+});
 
 function handleSave(_v: string, _h: Promise<string>) {
-  emit('save')
+  emit('save');
 }
 </script>
 
@@ -74,15 +74,26 @@ function handleSave(_v: string, _h: Promise<string>) {
    使用 child combinator > 确保覆盖 CodeMirror 默认 token 样式
    ================================================================ */
 /* 正文色 */
-.md-editor-dark .cm-editor .cm-gold-text { color: hsl(44, 16%, 88%); }
+.md-editor-dark .cm-editor .cm-gold-text {
+  color: hsl(44, 16%, 88%);
+}
 /* 关键字 — 柔和蓝 */
-.md-editor-dark .cm-editor .cm-gold-kw { color: hsl(220, 50%, 65%); }
+.md-editor-dark .cm-editor .cm-gold-kw {
+  color: hsl(220, 50%, 65%);
+}
 /* 字符串 */
-.md-editor-dark .cm-editor .cm-gold-str { color: hsl(150, 50%, 60%); }
+.md-editor-dark .cm-editor .cm-gold-str {
+  color: hsl(150, 50%, 60%);
+}
 /* 数字 / 布尔值 */
-.md-editor-dark .cm-editor .cm-gold-num { color: hsl(150, 50%, 60%); }
+.md-editor-dark .cm-editor .cm-gold-num {
+  color: hsl(150, 50%, 60%);
+}
 /* 注释 */
-.md-editor-dark .cm-editor .cm-gold-cmt { color: hsl(40, 5%, 41%); font-style: italic; }
+.md-editor-dark .cm-editor .cm-gold-cmt {
+  color: hsl(40, 5%, 41%);
+  font-style: italic;
+}
 /* 标题 — 暗金色 + 加粗 */
 .md-editor-dark .cm-editor .cm-gold-h,
 .md-editor-dark .cm-editor .cm-gold-h1,
@@ -95,34 +106,66 @@ function handleSave(_v: string, _h: Promise<string>) {
   font-weight: 600;
 }
 /* 标记符号 (# > - * `) */
-.md-editor-dark .cm-editor .cm-gold-mk { color: hsl(43, 60%, 58%); }
+.md-editor-dark .cm-editor .cm-gold-mk {
+  color: hsl(43, 60%, 58%);
+}
 /* 链接 */
-.md-editor-dark .cm-editor .cm-gold-lnk { color: hsl(200, 60%, 65%); text-decoration: underline; }
-.md-editor-dark .cm-editor .cm-gold-url { color: hsl(200, 60%, 65%); }
+.md-editor-dark .cm-editor .cm-gold-lnk {
+  color: hsl(200, 60%, 65%);
+  text-decoration: underline;
+}
+.md-editor-dark .cm-editor .cm-gold-url {
+  color: hsl(200, 60%, 65%);
+}
 /* 粗体 — 暖金调白，跟正文有明显区分 */
-.md-editor-dark .cm-editor .cm-gold-b { color: hsl(43, 40%, 84%); font-weight: 700; }
+.md-editor-dark .cm-editor .cm-gold-b {
+  color: hsl(43, 40%, 84%);
+  font-weight: 700;
+}
 /* 斜体 — 稍亮于注释，有层次 */
-.md-editor-dark .cm-editor .cm-gold-i { font-style: italic; color: hsl(44, 10%, 75%); }
+.md-editor-dark .cm-editor .cm-gold-i {
+  font-style: italic;
+  color: hsl(44, 10%, 75%);
+}
 /* 列表 */
-.md-editor-dark .cm-editor .cm-gold-list { color: hsl(44, 16%, 88%); }
+.md-editor-dark .cm-editor .cm-gold-list {
+  color: hsl(44, 16%, 88%);
+}
 /* 引用 */
-.md-editor-dark .cm-editor .cm-gold-q { color: hsl(40, 5%, 41%); }
+.md-editor-dark .cm-editor .cm-gold-q {
+  color: hsl(40, 5%, 41%);
+}
 /* 行内代码 */
-.md-editor-dark .cm-editor .cm-gold-code { color: hsl(200, 60%, 65%); }
+.md-editor-dark .cm-editor .cm-gold-code {
+  color: hsl(200, 60%, 65%);
+}
 /* 类型 / 类名 */
-.md-editor-dark .cm-editor .cm-gold-type { color: hsl(43, 60%, 58%); }
+.md-editor-dark .cm-editor .cm-gold-type {
+  color: hsl(43, 60%, 58%);
+}
 /* 运算符 */
-.md-editor-dark .cm-editor .cm-gold-op { color: hsl(220, 50%, 65%); }
+.md-editor-dark .cm-editor .cm-gold-op {
+  color: hsl(220, 50%, 65%);
+}
 /* 名称 / 变量 */
-.md-editor-dark .cm-editor .cm-gold-name { color: hsl(44, 16%, 88%); }
+.md-editor-dark .cm-editor .cm-gold-name {
+  color: hsl(44, 16%, 88%);
+}
 /* 删除线 */
-.md-editor-dark .cm-editor .cm-gold-s { text-decoration: line-through; }
+.md-editor-dark .cm-editor .cm-gold-s {
+  text-decoration: line-through;
+}
 /* 元信息 */
-.md-editor-dark .cm-editor .cm-gold-meta { color: hsl(40, 5%, 41%); }
+.md-editor-dark .cm-editor .cm-gold-meta {
+  color: hsl(40, 5%, 41%);
+}
 
 /* Preview pane — use body font */
 .md-editor-dark .md-editor-preview-wrapper {
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
   font-size: 14px;
   line-height: 1.75;
 }
