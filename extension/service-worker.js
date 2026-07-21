@@ -2,8 +2,33 @@ async function getConfig() {
   return chrome.storage.local.get(['token', 'backendUrl']);
 }
 
-chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
+const MAX_CAPTURE_BODY_BYTES = 2 * 1024 * 1024;
+
+function isAllowedExternalSender(sender) {
+  const rawUrl = sender?.origin || sender?.url || '';
+  if (!rawUrl) return false;
+
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== 'http:') return false;
+
+    return (
+      url.hostname === 'localhost' ||
+      url.hostname === '127.0.0.1' ||
+      url.hostname === '8.130.118.128'
+    );
+  } catch {
+    return false;
+  }
+}
+
+chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
   if (message.action === 'setConfig') {
+    if (!isAllowedExternalSender(sender)) {
+      sendResponse({ success: false, error: 'forbidden_origin' });
+      return false;
+    }
+
     const { token, backendUrl } = message;
     chrome.storage.local.set({ token: token || '', backendUrl: backendUrl || '' }).then(() => {
       sendResponse({ success: true });
@@ -55,6 +80,74 @@ async function readFromContentScript(tabId) {
   return result;
 }
 
+function normalizeYuquePageAppData(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const bookId =
+    raw.bookId ||
+    raw.book_id ||
+    raw.book?.id ||
+    raw.book?.bookId ||
+    raw.book?.book_id;
+  const articleSlug =
+    raw.articleSlug ||
+    raw.article_slug ||
+    raw.slug ||
+    raw.id ||
+    raw.docSlug;
+  const host = raw.host || raw.hostname || '';
+
+  if (!bookId || !articleSlug || !host) return null;
+
+  return {
+    bookId,
+    articleSlug: String(articleSlug),
+    host: String(host),
+  };
+}
+
+function yuqueSlugFromLocation(locationLike) {
+  const pathname = locationLike && typeof locationLike.pathname === 'string'
+    ? locationLike.pathname
+    : '';
+  const parts = pathname.split('/').filter(Boolean);
+  return parts.length >= 3 ? parts[2] : '';
+}
+
+async function readYuquePageAppData(tabId) {
+  if (!chrome.scripting || !chrome.scripting.executeScript) {
+    return null;
+  }
+
+  try {
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: () => {
+        const appData = window.appData || {};
+        const doc = appData.doc || appData?.data?.doc || null;
+        const book = doc?.book || appData.book || {};
+        const pathParts = window.location.pathname.split('/').filter(Boolean);
+        return {
+          bookId: doc?.bookId || doc?.book_id || book.id || book.bookId || book.book_id,
+          articleSlug:
+            doc?.articleSlug ||
+            doc?.article_slug ||
+            doc?.slug ||
+            doc?.docSlug ||
+            (pathParts.length >= 3 ? pathParts[2] : ''),
+          host: window.location.host,
+        };
+      },
+    });
+
+    return normalizeYuquePageAppData(injection?.result);
+  } catch (err) {
+    console.warn('[Super Admin] Yuque appData read failed:', err.message);
+    return null;
+  }
+}
+
 async function readDirectlyFromTab(tabId) {
   if (!chrome.scripting || !chrome.scripting.executeScript) {
     return { localStorage: {}, pageHtml: '', pageTitle: '' };
@@ -94,9 +187,10 @@ async function readDirectlyFromTab(tabId) {
 }
 
 async function readTabState(tabId) {
+  const pageAppData = await readYuquePageAppData(tabId);
   const fromContentScript = await readFromContentScript(tabId);
   if (fromContentScript.pageHtml) {
-    return fromContentScript;
+    return { ...fromContentScript, pageAppData };
   }
 
   const fromDirectRead = await readDirectlyFromTab(tabId);
@@ -107,6 +201,7 @@ async function readTabState(tabId) {
         : fromDirectRead.localStorage,
     pageHtml: fromDirectRead.pageHtml,
     pageTitle: fromDirectRead.pageTitle || fromContentScript.pageTitle || '',
+    pageAppData,
   };
 }
 
@@ -122,6 +217,66 @@ function attachPageHtmlIfSmall(payload, pageHtml) {
       __reason__: 'pageHtml payload exceeds 3MB limit',
       __original_size__: htmlSize,
     });
+  }
+}
+
+function getJsonSize(value) {
+  return new TextEncoder().encode(JSON.stringify(value)).length;
+}
+
+function readPageHtmlMeta(payload) {
+  if (!payload.pageHtmlMeta) return {};
+
+  try {
+    const parsed = JSON.parse(payload.pageHtmlMeta);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function mergePageHtmlMeta(payload, meta) {
+  payload.pageHtmlMeta = JSON.stringify({
+    ...readPageHtmlMeta(payload),
+    ...meta,
+  });
+}
+
+function ensureCapturePayloadFits(payload) {
+  let bodySize = getJsonSize(payload);
+
+  if (bodySize > MAX_CAPTURE_BODY_BYTES) {
+    payload.localStorage = JSON.stringify({
+      __truncated__: true,
+      __reason__: 'localStorage payload exceeds 2MB limit',
+      __original_size__: bodySize,
+    });
+  }
+
+  bodySize = getJsonSize(payload);
+  if (bodySize <= MAX_CAPTURE_BODY_BYTES) return;
+
+  if (payload.pageHtml) {
+    delete payload.pageHtml;
+    mergePageHtmlMeta(payload, {
+      __truncated__: true,
+      __reason__: 'request payload exceeds 2MB limit',
+      __original_size__: bodySize,
+    });
+  }
+
+  bodySize = getJsonSize(payload);
+  if (bodySize <= MAX_CAPTURE_BODY_BYTES) return;
+
+  if (payload.pageAppData) {
+    delete payload.pageAppData;
+  }
+
+  bodySize = getJsonSize(payload);
+  if (bodySize <= MAX_CAPTURE_BODY_BYTES) return;
+
+  if (payload.pageHtmlMeta) {
+    delete payload.pageHtmlMeta;
   }
 }
 
@@ -145,18 +300,13 @@ async function handleCapture(tabUrl, tabId) {
     localStorage: JSON.stringify(tabState.localStorage),
   };
   attachPageHtmlIfSmall(payload, tabState.pageHtml);
-
-  const bodySize = new TextEncoder().encode(JSON.stringify(payload)).length;
-  if (bodySize > 2 * 1024 * 1024) {
-    payload.localStorage = JSON.stringify({
-      __truncated__: true,
-      __reason__: 'localStorage payload exceeds 2MB limit',
-      __original_size__: bodySize,
-    });
+  if (tabState.pageAppData) {
+    payload.pageAppData = JSON.stringify(tabState.pageAppData);
   }
   if (tabState.pageTitle) {
-    payload.pageHtmlMeta = JSON.stringify({ title: tabState.pageTitle });
+    mergePageHtmlMeta(payload, { title: tabState.pageTitle });
   }
+  ensureCapturePayloadFits(payload);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 4 * 60 * 1000);
@@ -199,10 +349,16 @@ async function handleCapture(tabUrl, tabId) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     attachPageHtmlIfSmall,
+    ensureCapturePayloadFits,
     getConfig,
     handleCapture,
+    isAllowedExternalSender,
+    mergePageHtmlMeta,
+    normalizeYuquePageAppData,
     readDirectlyFromTab,
     readFromContentScript,
     readTabState,
+    readYuquePageAppData,
+    yuqueSlugFromLocation,
   };
 }

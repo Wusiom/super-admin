@@ -39,12 +39,49 @@ class CaptureDto {
   @IsOptional()
   @IsString()
   pageHtmlMeta?: string;
+
+  @IsOptional()
+  @IsString()
+  pageAppData?: string;
 }
 
 class UpdateKnowledgeItemDto {
   @IsNotEmpty()
   @IsString()
   contentMarkdown: string;
+}
+
+function formatJobError(err: any) {
+  const message = err?.message || String(err);
+  return err?.jobErrorType ? `${err.jobErrorType}: ${message}` : message;
+}
+
+function isYuqueHostname(hostname: string) {
+  const normalized = hostname.toLowerCase().replace(/\.$/, '');
+  return normalized === 'yuque.com' || normalized.endsWith('.yuque.com');
+}
+
+function isYuqueUrl(url: string) {
+  try {
+    return isYuqueHostname(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function hasValidYuquePageAppData(pageAppData: unknown) {
+  if (!pageAppData || typeof pageAppData !== 'object') return false;
+  const value = pageAppData as Record<string, any>;
+  return Boolean(value.bookId && value.articleSlug && value.host);
+}
+
+function canTryYuqueApiWithoutSnapshot(jobData: Record<string, any>) {
+  return (
+    isYuqueUrl(jobData.url) &&
+    hasValidYuquePageAppData(jobData.pageAppData) &&
+    Array.isArray(jobData.cookies) &&
+    jobData.cookies.length > 0
+  );
 }
 
 @Controller('api/tools/knowledge-capture')
@@ -91,7 +128,15 @@ export class KnowledgeCaptureController {
       }
     }
 
-    if (!jobData.pageHtml) {
+    if (dto.pageAppData) {
+      try {
+        jobData.pageAppData = JSON.parse(dto.pageAppData);
+      } catch {
+        return { error: 'pageAppData 格式错误，需要合法的 JSON 对象' };
+      }
+    }
+
+    if (!jobData.pageHtml && !canTryYuqueApiWithoutSnapshot(jobData)) {
       const job = await this.prisma.job.create({
         data: {
           toolKey: 'knowledge-capture',
@@ -152,7 +197,7 @@ export class KnowledgeCaptureController {
         try {
           await this.prisma.job.update({
             where: { id: job.id },
-            data: { status: 'failed', error: err.message || String(err) },
+            data: { status: 'failed', error: formatJobError(err) },
           });
           void this.jobEvents.emitEnrichedJob(job.id);
           void this.jobEvents.emitMetricsSnapshot('knowledge-capture');
