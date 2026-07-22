@@ -39,9 +39,7 @@ let eventSource: EventSource | null = null;
 function connectSSE() {
   if (eventSource) eventSource.close();
 
-  eventSource = new EventSource(
-    `/api/jobs/events?toolKey=knowledge-capture`,
-  );
+  eventSource = new EventSource(`/api/jobs/events?toolKey=knowledge-capture`);
 
   // 初始全量数据
   eventSource.addEventListener('init', (e: MessageEvent) => {
@@ -685,9 +683,7 @@ onUnmounted(() => {
               <div class="flex justify-between">
                 <span class="text-[hsl(44,7%,47%)]">Markdown 长度</span>
                 <span class="text-[hsl(44,7%,67%)] tabular-nums">
-                  {{
-                    formatNumber(expandedJob.diagnostics?.markdownLength)
-                  }}
+                  {{ formatNumber(expandedJob.diagnostics?.markdownLength) }}
                   字符
                 </span>
               </div>
@@ -823,7 +819,7 @@ onUnmounted(() => {
     <!-- Markdown 查看/编辑弹窗 -->
     <el-dialog
       v-model="markdownVisible"
-      width="900px"
+      width="65%"
       top="3vh"
       :before-close="handleBeforeClose"
     >
@@ -832,7 +828,14 @@ onUnmounted(() => {
           <span class="dialog-title">{{ markdownTitle }}</span>
           <div class="dialog-header-actions">
             <button class="btn-icon" @click="handleFullscreen">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14">
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                width="14"
+                height="14"
+              >
                 <rect x="2" y="2" width="5" height="5" rx="0.5" />
                 <rect x="9" y="2" width="5" height="5" rx="0.5" />
                 <rect x="2" y="9" width="5" height="5" rx="0.5" />
@@ -852,7 +855,7 @@ onUnmounted(() => {
       <MarkdownEditor
         v-else
         v-model="markdownContent"
-        height="55vh"
+        height="80vh"
         @save="handleDialogSave"
       />
       <template #footer>
