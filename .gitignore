@@ -6,3 +6,4 @@ prisma/migrations/
 .turbo/
 .gstack/
 .worktrees/
+.worktrees/

@@ -1,20 +1,20 @@
 ## 1. Baseline and Dependencies
 
-- [ ] 1.1 Record current server/client build and test baselines and document any pre-existing failures
-- [ ] 1.2 Add LangGraph, LangChain, PostgreSQL, Argon2id, file-signature, EPUB/PDF parsing, object-storage, and mail dependencies with pinned compatible versions
-- [ ] 1.3 Add validated environment configuration for PostgreSQL, Redis, object storage, SMTP, model providers, session secrets, and public application URL
-- [ ] 1.4 Extend Docker Compose and environment examples with PostgreSQL, object storage, and required health checks
+- [x] 1.1 Record current server/client build and test baselines and document any pre-existing failures
+- [x] 1.2 Add LangGraph, LangChain, PostgreSQL, Argon2id, file-signature, EPUB/PDF parsing, object-storage, and mail dependencies with pinned compatible versions
+- [x] 1.3 Add validated environment configuration for PostgreSQL, Redis, object storage, SMTP, model providers, session secrets, and public application URL
+- [x] 1.4 Extend Docker Compose and environment examples with PostgreSQL, object storage, and required health checks
 
 ## 2. PostgreSQL Schema and Migration
 
-- [ ] 2.1 Replace the Prisma SQLite datasource with PostgreSQL and keep the existing Tool and Job semantics compatible
-- [ ] 2.2 Add User, WebSession, EmailToken, PasswordResetToken, user-owned ApiToken, Role, and AuditEvent schema
-- [ ] 2.3 Add LearningSource, SourceVersion, SourceAnchor, Concept, LearningUnit, LearningProject, and LearningContract schema
-- [ ] 2.4 Add TutoringSession, TutoringTurn, UnderstandingEvidence, ConceptState, LearnerStrategy, and ProfileEvidence schema
-- [ ] 2.5 Add AtomicNote, AtomicNoteLink, ModelProvider, ModelProfile, PromptVersion, ModelCall, QuotaPolicy, and UserQuotaOverride schema
-- [ ] 2.6 Add ownership, idempotency, source-version, BullMQ, audit, and lookup indexes and constraints
-- [ ] 2.7 Implement and test the SQLite-to-PostgreSQL migration that assigns existing KnowledgeItems and Jobs to the initial administrator
-- [ ] 2.8 Verify Prisma generation, migration application, record counts, content hashes, and rollback backup instructions
+- [x] 2.1 Replace the Prisma SQLite datasource with PostgreSQL and keep the existing Tool and Job semantics compatible
+- [x] 2.2 Add User, WebSession, EmailToken, PasswordResetToken, user-owned ApiToken, Role, and AuditEvent schema
+- [x] 2.3 Add LearningSource, SourceVersion, SourceAnchor, Concept, LearningUnit, LearningProject, and LearningContract schema
+- [x] 2.4 Add TutoringSession, TutoringTurn, UnderstandingEvidence, ConceptState, LearnerStrategy, and ProfileEvidence schema
+- [x] 2.5 Add AtomicNote, AtomicNoteLink, ModelProvider, ModelProfile, PromptVersion, ModelCall, QuotaPolicy, and UserQuotaOverride schema
+- [x] 2.6 Add ownership, idempotency, source-version, BullMQ, audit, and lookup indexes and constraints
+- [x] 2.7 Implement and test the SQLite-to-PostgreSQL migration that assigns existing KnowledgeItems and Jobs to the initial administrator
+- [x] 2.8 Verify Prisma generation, migration application, record counts, content hashes, and rollback backup instructions
 
 ## 3. Authentication and Ownership
 
