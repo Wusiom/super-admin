@@ -254,7 +254,10 @@ function findBestDomContent(document: any): ExtractedContent | null {
   };
 }
 
-function extractReadableContent(pageHtml: string, url: string): ExtractedContent | null {
+function extractReadableContent(
+  pageHtml: string,
+  url: string,
+): ExtractedContent | null {
   const dom = new JSDOM(pageHtml, { url });
   const domContent = findBestDomContent(dom.window.document);
   if (domContent) return domContent;
@@ -287,10 +290,14 @@ function resolveTitle(
 }
 
 export async function captureProcessor(job: Job) {
-  const { url, jobRecordId, pageHtml } = job.data;
+  const { url, userId, jobRecordId, pageHtml } = job.data;
   const pageHtmlMeta = parsePageHtmlMeta(job.data.pageHtmlMeta);
 
-  if (!pageHtml || typeof pageHtml !== 'string' || pageHtml.trim().length < 100) {
+  if (
+    !pageHtml ||
+    typeof pageHtml !== 'string' ||
+    pageHtml.trim().length < 100
+  ) {
     throw Object.assign(
       new Error('Page snapshot was not received from the extension'),
       { jobErrorType: 'NO_SNAPSHOT' },
@@ -318,7 +325,9 @@ export async function captureProcessor(job: Job) {
     }
     if (issue === 'locked') {
       throw Object.assign(
-        new Error('Page requires authentication or subscription to view full content'),
+        new Error(
+          'Page requires authentication or subscription to view full content',
+        ),
         { jobErrorType: 'LOCKED_CONTENT' },
       );
     }
@@ -333,6 +342,7 @@ export async function captureProcessor(job: Job) {
 
     const item = await prisma.knowledgeItem.create({
       data: {
+        userId,
         title,
         url,
         contentHtml: content.content,

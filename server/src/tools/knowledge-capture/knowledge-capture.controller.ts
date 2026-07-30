@@ -10,10 +10,13 @@ import {
   Post,
   Put,
   Query,
+  Req,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
 import { ApiTokenGuard } from '../../core/auth/api-token.guard';
+import type { ApiTokenAuthenticatedRequest } from '../../core/auth/api-token.guard';
 import { BullMqService } from '../../core/bullmq.service';
 import { JobEventService } from '../../core/job-events.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -60,8 +63,18 @@ export class KnowledgeCaptureController {
   @Post('capture')
   @HttpCode(HttpStatus.CREATED)
   @UseGuards(ApiTokenGuard)
-  async capture(@Body() dto: CaptureDto) {
-    const jobData: Record<string, any> = { url: dto.url };
+  async capture(
+    @Body() dto: CaptureDto,
+    @Req() request: ApiTokenAuthenticatedRequest,
+  ) {
+    const principal = request.apiTokenPrincipal;
+    if (!principal) {
+      throw new UnauthorizedException('API token owner is required');
+    }
+    const jobData: Record<string, any> = {
+      url: dto.url,
+      userId: principal.userId,
+    };
 
     if (dto.cookies) {
       try {
@@ -94,10 +107,14 @@ export class KnowledgeCaptureController {
     if (!jobData.pageHtml) {
       const job = await this.prisma.job.create({
         data: {
+          userId: principal.userId,
           toolKey: 'knowledge-capture',
           status: 'failed',
           input: JSON.stringify(jobData),
+          inputMetadata: { url: dto.url },
           error: 'Page snapshot was not received from the extension',
+          errorCategory: 'NO_SNAPSHOT',
+          retryEligible: false,
         },
       });
       void this.jobEvents.emitEnrichedJob(job.id);
@@ -107,9 +124,11 @@ export class KnowledgeCaptureController {
 
     const job = await this.prisma.job.create({
       data: {
+        userId: principal.userId,
         toolKey: 'knowledge-capture',
         status: 'running',
         input: JSON.stringify(jobData),
+        inputMetadata: { url: dto.url },
       },
     });
 
@@ -130,7 +149,9 @@ export class KnowledgeCaptureController {
       );
     });
 
-    console.log(`[capture] Starting processor for job #${job.id}, url=${jobData.url}`);
+    console.log(
+      `[capture] Starting processor for job #${job.id}, url=${jobData.url}`,
+    );
     Promise.race([captureProcessor(mockJob), timeout])
       .then(async (result) => {
         clearTimeout(timeoutId!);
@@ -143,7 +164,10 @@ export class KnowledgeCaptureController {
           void this.jobEvents.emitEnrichedJob(job.id);
           void this.jobEvents.emitMetricsSnapshot('knowledge-capture');
         } catch (dbErr: any) {
-          console.error(`[capture] Failed to update job ${job.id} to success:`, dbErr.message);
+          console.error(
+            `[capture] Failed to update job ${job.id} to success:`,
+            dbErr.message,
+          );
         }
       })
       .catch(async (err: any) => {
@@ -157,7 +181,10 @@ export class KnowledgeCaptureController {
           void this.jobEvents.emitEnrichedJob(job.id);
           void this.jobEvents.emitMetricsSnapshot('knowledge-capture');
         } catch (dbErr: any) {
-          console.error(`[capture] Failed to update job ${job.id} to failed:`, dbErr.message);
+          console.error(
+            `[capture] Failed to update job ${job.id} to failed:`,
+            dbErr.message,
+          );
         }
       });
 

@@ -1,5 +1,10 @@
 import { KnowledgeCaptureController } from './knowledge-capture.controller';
 
+const captureRequest = {
+  headers: { authorization: 'Bearer test-token' },
+  apiTokenPrincipal: { userId: 99, scopes: ['capture:create'] },
+};
+
 jest.mock('./capture.processor', () => ({
   captureProcessor: jest.fn().mockResolvedValue({ itemId: 1 }),
 }));
@@ -24,15 +29,23 @@ describe('KnowledgeCaptureController capture', () => {
         update: jest.fn(),
       },
     };
-    const controller = new KnowledgeCaptureController(prisma as any, {} as any, mockJobEvents());
+    const controller = new KnowledgeCaptureController(
+      prisma as any,
+      {} as any,
+      mockJobEvents(),
+    );
 
-    const result = await controller.capture({
-      url: 'https://example.com/article',
-      cookies: '[]',
-      localStorage: '{}',
-      pageHtml: '<html><body><article>Snapshot article body</article></body></html>',
-      pageHtmlMeta: '{"source":"extension"}',
-    });
+    const result = await controller.capture(
+      {
+        url: 'https://example.com/article',
+        cookies: '[]',
+        localStorage: '{}',
+        pageHtml:
+          '<html><body><article>Snapshot article body</article></body></html>',
+        pageHtmlMeta: '{"source":"extension"}',
+      },
+      captureRequest,
+    );
 
     expect(result).toEqual({ jobId: 11 });
     const input = JSON.parse(createdJobs[0].input);
@@ -41,6 +54,7 @@ describe('KnowledgeCaptureController capture', () => {
     );
     expect(input.pageHtmlMeta).toEqual({ source: 'extension' });
     expect(input.url).toBe('https://example.com/article');
+    expect(createdJobs[0].userId).toBe(99);
   });
 
   it('creates a failed diagnostic job when no snapshot is provided', async () => {
@@ -50,13 +64,20 @@ describe('KnowledgeCaptureController capture', () => {
         update: jest.fn(),
       },
     };
-    const controller = new KnowledgeCaptureController(prisma as any, {} as any, mockJobEvents());
+    const controller = new KnowledgeCaptureController(
+      prisma as any,
+      {} as any,
+      mockJobEvents(),
+    );
 
-    const result = await controller.capture({
-      url: 'https://example.com/article',
-      cookies: '[]',
-      localStorage: '{}',
-    });
+    const result = await controller.capture(
+      {
+        url: 'https://example.com/article',
+        cookies: '[]',
+        localStorage: '{}',
+      },
+      captureRequest,
+    );
 
     expect(result).toEqual({ jobId: 12 });
     expect(prisma.job.create).toHaveBeenCalledWith({
@@ -78,14 +99,22 @@ describe('KnowledgeCaptureController capture', () => {
         update: jest.fn(),
       },
     };
-    const controller = new KnowledgeCaptureController(prisma as any, {} as any, mockJobEvents());
+    const controller = new KnowledgeCaptureController(
+      prisma as any,
+      {} as any,
+      mockJobEvents(),
+    );
 
-    await controller.capture({
-      url: 'https://example.com/article',
-      cookies: '[{"name":"session","value":"abc123"}]',
-      localStorage: '{"auth":"token-xyz","theme":"dark"}',
-      pageHtml: '<html><body><article>Test content with sufficient length to pass extraction check</article></body></html>',
-    });
+    await controller.capture(
+      {
+        url: 'https://example.com/article',
+        cookies: '[{"name":"session","value":"abc123"}]',
+        localStorage: '{"auth":"token-xyz","theme":"dark"}',
+        pageHtml:
+          '<html><body><article>Test content with sufficient length to pass extraction check</article></body></html>',
+      },
+      captureRequest,
+    );
 
     const input = JSON.parse(createdJobs[0].input);
     expect(input.cookies).toEqual([{ name: 'session', value: 'abc123' }]);
@@ -100,13 +129,20 @@ describe('KnowledgeCaptureController capture', () => {
         delete: jest.fn(),
       },
     };
-    const controller = new KnowledgeCaptureController(prisma as any, {} as any, mockJobEvents());
+    const controller = new KnowledgeCaptureController(
+      prisma as any,
+      {} as any,
+      mockJobEvents(),
+    );
 
-    const result = await controller.capture({
-      url: 'https://example.com/article',
-      cookies: 'not-json',
-      pageHtml: '<html>test</html>',
-    });
+    const result = await controller.capture(
+      {
+        url: 'https://example.com/article',
+        cookies: 'not-json',
+        pageHtml: '<html>test</html>',
+      },
+      captureRequest,
+    );
 
     expect(result).toEqual({ error: 'cookies 格式错误，需要合法的 JSON 数组' });
     expect(prisma.job.create).not.toHaveBeenCalled();
@@ -120,15 +156,24 @@ describe('KnowledgeCaptureController capture', () => {
         delete: jest.fn(),
       },
     };
-    const controller = new KnowledgeCaptureController(prisma as any, {} as any, mockJobEvents());
+    const controller = new KnowledgeCaptureController(
+      prisma as any,
+      {} as any,
+      mockJobEvents(),
+    );
 
-    const result = await controller.capture({
-      url: 'https://example.com/article',
-      localStorage: '{broken',
-      pageHtml: '<html>test</html>',
+    const result = await controller.capture(
+      {
+        url: 'https://example.com/article',
+        localStorage: '{broken',
+        pageHtml: '<html>test</html>',
+      },
+      captureRequest,
+    );
+
+    expect(result).toEqual({
+      error: 'localStorage 格式错误，需要合法的 JSON 对象',
     });
-
-    expect(result).toEqual({ error: 'localStorage 格式错误，需要合法的 JSON 对象' });
     expect(prisma.job.create).not.toHaveBeenCalled();
   });
 
@@ -139,15 +184,24 @@ describe('KnowledgeCaptureController capture', () => {
         update: jest.fn(),
       },
     };
-    const controller = new KnowledgeCaptureController(prisma as any, {} as any, mockJobEvents());
+    const controller = new KnowledgeCaptureController(
+      prisma as any,
+      {} as any,
+      mockJobEvents(),
+    );
 
-    const result = await controller.capture({
-      url: 'https://example.com/article',
-      pageHtmlMeta: 'not-json',
-      pageHtml: '<html>test</html>',
+    const result = await controller.capture(
+      {
+        url: 'https://example.com/article',
+        pageHtmlMeta: 'not-json',
+        pageHtml: '<html>test</html>',
+      },
+      captureRequest,
+    );
+
+    expect(result).toEqual({
+      error: 'pageHtmlMeta 格式错误，需要合法的 JSON 对象',
     });
-
-    expect(result).toEqual({ error: 'pageHtmlMeta 格式错误，需要合法的 JSON 对象' });
     expect(prisma.job.create).not.toHaveBeenCalled();
   });
 });
@@ -192,7 +246,9 @@ describe('KnowledgeCaptureController updateItem', () => {
     prisma.knowledgeItem.findUnique.mockResolvedValue(existing);
     prisma.knowledgeItem.update.mockResolvedValue(updated);
 
-    const result = await controller.updateItem('1', { contentMarkdown: '# New content' });
+    const result = await controller.updateItem('1', {
+      contentMarkdown: '# New content',
+    });
 
     expect(result).toEqual(updated);
     expect(result.contentMarkdown).toBe('# New content');
@@ -225,7 +281,9 @@ describe('KnowledgeCaptureController updateItem', () => {
     });
     expect(prisma.job.delete).toHaveBeenCalledWith({ where: { id: 77 } });
     expect(jobEvents.emitJobDeleted).toHaveBeenCalledWith(77);
-    expect(jobEvents.emitMetricsSnapshot).toHaveBeenCalledWith('knowledge-capture');
+    expect(jobEvents.emitMetricsSnapshot).toHaveBeenCalledWith(
+      'knowledge-capture',
+    );
   });
 
   it('deletes the knowledge item even when no capture job is linked', async () => {
@@ -242,7 +300,9 @@ describe('KnowledgeCaptureController updateItem', () => {
     });
     expect(prisma.job.delete).not.toHaveBeenCalled();
     expect(jobEvents.emitJobDeleted).not.toHaveBeenCalled();
-    expect(jobEvents.emitMetricsSnapshot).toHaveBeenCalledWith('knowledge-capture');
+    expect(jobEvents.emitMetricsSnapshot).toHaveBeenCalledWith(
+      'knowledge-capture',
+    );
   });
 
   it('lists items without markdown or html bodies', async () => {

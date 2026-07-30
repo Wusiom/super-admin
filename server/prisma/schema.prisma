@@ -3,8 +3,301 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum SourceType {
+  WEB
+  EPUB
+  PDF
+}
+
+enum SourceStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+  DELETED
+}
+
+enum ParsingStage {
+  PENDING
+  VALIDATED
+  EXTRACTED
+  ANCHORED
+  MAPPED
+  READY
+  FAILED
+}
+
+enum ParsingQuality {
+  GOOD
+  LOW_CONFIDENCE
+  SCANNED_UNSUPPORTED
+}
+
+enum SourceAnchorKind {
+  SECTION
+  PAGE
+  PARAGRAPH
+  RANGE
+}
+
+enum ConceptImportance {
+  CORE
+  SUPPORTING
+  DETAIL
+}
+
+enum MapItemStatus {
+  PROPOSED
+  CONFIRMED
+  SKIPPED
+}
+
+enum LearningProjectStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  ABANDONED
+}
+
+enum LearningContractStatus {
+  DRAFT
+  CONFIRMED
+  SUPERSEDED
+}
+
+enum TutoringSessionStatus {
+  ACTIVE
+  INTERRUPTED
+  COMPLETED
+  ENDED
+  ERROR
+}
+
+enum TutoringTurnStatus {
+  PENDING
+  GENERATING
+  AWAITING_USER
+  EVALUATED
+  COMMITTED
+  FAILED
+}
+
+enum TutorActionKind {
+  EXPLAIN
+  ASK_RECALL
+  ASK_SELF_EXPLAIN
+  ASK_TRANSFER
+  GIVE_HINT
+  GIVE_EXAMPLE
+  COMPARE
+  CHALLENGE
+  SUMMARIZE
+  MAKE_NOTE
+}
+
+enum EvaluationOutcome {
+  UNSUPPORTED
+  PARTIAL
+  SOUND
+  TRANSFER_VALIDATED
+}
+
+enum UnderstandingLevel {
+  UNSEEN
+  RECALLABLE
+  EXPLAINABLE
+  TRANSFER_VALIDATED
+}
+
+enum EvidenceKind {
+  RECALL
+  EXPLANATION
+  BOUNDARY
+  TRANSFER
+  DISAGREEMENT
+}
+
+enum NoteStatus {
+  DRAFT
+  CONFIRMED
+  REJECTED
+}
+
+enum NoteLinkStatus {
+  SUGGESTED
+  CONFIRMED
+  REJECTED
+}
+
+enum AuditResult {
+  SUCCESS
+  REJECTED
+  FAILED
+}
+
+enum ModelConfigStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
+enum PromptKind {
+  ACTION
+  EVALUATION
+  NOTE
+}
+
+enum ModelCallStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum QuotaMetric {
+  MODEL_TOKENS
+  STORAGE_BYTES
+  FILE_SIZE_BYTES
+  CONCURRENT_SESSIONS
+}
+
+model User {
+  id                    Int                     @id @default(autoincrement())
+  email                 String
+  emailNormalized       String                  @unique
+  passwordHash          String
+  displayName           String?
+  role                  Role                    @default(USER)
+  status                UserStatus              @default(ACTIVE)
+  emailVerifiedAt       DateTime?
+  disabledAt            DateTime?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  webSessions           WebSession[]
+  emailTokens           EmailToken[]
+  passwordResetTokens   PasswordResetToken[]
+  apiTokens             ApiToken[]
+  jobs                  Job[]
+  knowledgeItems        KnowledgeItem[]
+  learningSources       LearningSource[]
+  sourceVersions        SourceVersion[]
+  learningProjects      LearningProject[]
+  learningContracts     LearningContract[]
+  learningContractUnits LearningContractUnit[]
+  tutoringSessions      TutoringSession[]
+  tutoringTurns         TutoringTurn[]
+  evidence              UnderstandingEvidence[]
+  conceptStates         ConceptState[]
+  learnerStrategies     LearnerStrategy[]
+  profileEvidence       ProfileEvidence[]
+  atomicNotes           AtomicNote[]
+  atomicNoteLinks       AtomicNoteLink[]
+  modelCalls            ModelCall[]
+  quotaOverrides        UserQuotaOverride[]
+  auditsAsActor         AuditEvent[]            @relation("AuditActor")
+  auditsAsTarget        AuditEvent[]            @relation("AuditTarget")
+
+  @@index([role, status])
+  @@index([status, emailVerifiedAt])
+}
+
+model WebSession {
+  id            Int       @id @default(autoincrement())
+  userId        Int
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash     String    @unique
+  familyId      String
+  userAgent     String?
+  ipAddressHash String?
+  expiresAt     DateTime
+  rotatedAt     DateTime?
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  lastUsedAt    DateTime?
+
+  @@index([userId])
+  @@index([userId, familyId])
+  @@index([expiresAt])
+}
+
+model EmailToken {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model ApiToken {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  label      String
+  scopes     String[]
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  expiresAt  DateTime?
+
+  @@index([userId])
+  @@index([userId, revokedAt])
+}
+
+model AuditEvent {
+  id             Int         @id @default(autoincrement())
+  actorUserId    Int?
+  actor          User?       @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  targetUserId   Int?
+  targetUser     User?       @relation("AuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  targetType     String
+  targetId       String?
+  action         String
+  reason         String?
+  beforeMetadata Json?
+  afterMetadata  Json?
+  result         AuditResult
+  errorCategory  String?
+  correlationId  String
+  createdAt      DateTime    @default(now())
+
+  @@index([actorUserId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([action, result, createdAt])
+  @@index([correlationId])
 }
 
 model Tool {
@@ -18,26 +311,40 @@ model Tool {
 }
 
 model Job {
-  id           Int      @id @default(autoincrement())
-  toolKey      String
-  status       String   @default("pending")
-  input        String?
-  output       String?
-  error        String?
-  bullmqJobId  String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-}
+  id             Int            @id @default(autoincrement())
+  userId         Int
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  toolKey        String
+  status         String         @default("pending")
+  input          String?
+  output         String?
+  error          String?
+  inputMetadata  Json?
+  outputMetadata Json?
+  errorCategory  String?
+  retryEligible  Boolean        @default(false)
+  attemptCount   Int            @default(0)
+  maxAttempts    Int            @default(1)
+  bullmqJobId    String?
+  idempotencyKey String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  knowledgeItem  KnowledgeItem?
 
-model ApiToken {
-  id        Int      @id @default(autoincrement())
-  token     String   @unique // SHA-256 hash of the raw token
-  label     String   @default("default")
-  createdAt DateTime @default(now())
+  @@unique([userId, toolKey, idempotencyKey])
+  @@unique([toolKey, bullmqJobId])
+  @@unique([id, userId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([toolKey, status, createdAt(sort: Desc)])
+  @@index([status, updatedAt])
 }
 
 model KnowledgeItem {
   id              Int      @id @default(autoincrement())
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title           String
   url             String
   source          String?
@@ -45,7 +352,655 @@ model KnowledgeItem {
   contentMarkdown String?
   status          String   @default("draft")
   capturedAt      DateTime @default(now())
-  jobId           Int?
+  jobId           Int?     @unique
+  job             Job?     @relation(fields: [jobId, userId], references: [id, userId], onDelete: NoAction)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  @@unique([jobId, userId])
+  @@index([userId, capturedAt(sort: Desc)])
+}
+
+model LearningSource {
+  id           Int               @id @default(autoincrement())
+  userId       Int
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type         SourceType
+  title        String
+  canonicalUrl String?
+  status       SourceStatus      @default(PENDING)
+  deletedAt    DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  versions     SourceVersion[]
+  projects     LearningProject[]
+
+  @@unique([userId, canonicalUrl])
+  @@unique([id, userId])
+  @@index([userId, status, updatedAt(sort: Desc)])
+}
+
+model SourceVersion {
+  id                Int                 @id @default(autoincrement())
+  userId            Int
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceId          Int
+  source            LearningSource      @relation(fields: [sourceId, userId], references: [id, userId], onDelete: Cascade)
+  version           Int
+  contentHash       String
+  originalFileName  String?
+  declaredMimeType  String?
+  detectedMimeType  String?
+  objectKey         String?
+  sizeBytes         BigInt?
+  contentHtml       String?
+  contentMarkdown   String?
+  captureMetadata   Json?
+  parsingStage      ParsingStage        @default(PENDING)
+  parsingQuality    ParsingQuality?
+  parsingConfidence Float?
+  qualityWarnings   Json?
+  failureCategory   String?
+  createdAt         DateTime            @default(now())
+  sections          SourceSection[]
+  chunks            SourceChunk[]
+  anchors           SourceAnchor[]
+  concepts          Concept[]
+  conceptLinks      ConceptDependency[]
+  learningUnits     LearningUnit[]
+  learningContracts LearningContract[]
+  projects          LearningProject[]
+  tutoringSessions  TutoringSession[]
+  notes             AtomicNote[]
+
+  @@unique([sourceId, version])
+  @@unique([sourceId, contentHash])
+  @@unique([id, userId])
+  @@unique([id, userId, sourceId])
+  @@index([userId, contentHash])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([parsingStage, createdAt])
+}
+
+model SourceSection {
+  id              Int             @id @default(autoincrement())
+  sourceVersionId Int
+  sourceVersion   SourceVersion   @relation(fields: [sourceVersionId], references: [id], onDelete: Cascade)
+  parentId        Int?
+  parent          SourceSection?  @relation("SectionTree", fields: [parentId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+  children        SourceSection[] @relation("SectionTree")
+  key             String
+  title           String
+  position        Int
+  depth           Int             @default(0)
+  anchors         SourceAnchor[]
+  chunks          SourceChunk[]
+
+  @@unique([sourceVersionId, key])
+  @@unique([sourceVersionId, position])
+  @@unique([id, sourceVersionId])
+  @@index([parentId])
+}
+
+model SourceChunk {
+  id              Int            @id @default(autoincrement())
+  sourceVersionId Int
+  sourceVersion   SourceVersion  @relation(fields: [sourceVersionId], references: [id], onDelete: Cascade)
+  sectionId       Int?
+  section         SourceSection? @relation(fields: [sectionId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+  position        Int
+  content         String
+  contentHash     String
+  anchors         SourceAnchor[]
+
+  @@unique([sourceVersionId, position])
+  @@unique([id, sourceVersionId])
+  @@index([sectionId, position])
+}
+
+model SourceAnchor {
+  id              Int                  @id @default(autoincrement())
+  sourceVersionId Int
+  sourceVersion   SourceVersion        @relation(fields: [sourceVersionId], references: [id], onDelete: Cascade)
+  sectionId       Int?
+  section         SourceSection?       @relation(fields: [sectionId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+  chunkId         Int?
+  chunk           SourceChunk?         @relation(fields: [chunkId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+  key             String
+  kind            SourceAnchorKind
+  locator         Json
+  quote           String
+  startOffset     Int?
+  endOffset       Int?
+  conceptAnchors  ConceptAnchor[]
+  unitAnchors     LearningUnitAnchor[]
+  evidenceAnchors EvidenceAnchor[]
+  noteAnchors     AtomicNoteAnchor[]
+
+  @@unique([sourceVersionId, key])
+  @@unique([id, sourceVersionId])
+  @@index([sourceVersionId, kind])
+  @@index([sectionId])
+  @@index([chunkId])
+}
+
+model Concept {
+  id              Int                     @id @default(autoincrement())
+  sourceVersionId Int
+  sourceVersion   SourceVersion           @relation(fields: [sourceVersionId], references: [id], onDelete: Cascade)
+  key             String
+  title           String
+  description     String
+  importance      ConceptImportance       @default(SUPPORTING)
+  status          MapItemStatus           @default(PROPOSED)
+  confidence      Float?
+  anchors         ConceptAnchor[]
+  prerequisiteFor ConceptDependency[]     @relation("ConceptPrerequisite")
+  dependsOn       ConceptDependency[]     @relation("ConceptDependent")
+  unitConcepts    LearningUnitConcept[]
+  evidence        UnderstandingEvidence[]
+  states          ConceptState[]
+  targetedTurns   TutoringTurn[]
+
+  @@unique([sourceVersionId, key])
+  @@unique([id, sourceVersionId])
+  @@index([sourceVersionId, importance, status])
+}
+
+model ConceptDependency {
+  id                    Int           @id @default(autoincrement())
+  sourceVersionId       Int
+  sourceVersion         SourceVersion @relation(fields: [sourceVersionId], references: [id], onDelete: Cascade)
+  prerequisiteConceptId Int
+  prerequisiteConcept   Concept       @relation("ConceptPrerequisite", fields: [prerequisiteConceptId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+  dependentConceptId    Int
+  dependentConcept      Concept       @relation("ConceptDependent", fields: [dependentConceptId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+  relationType          String
+  confidence            Float?
+
+  @@unique([sourceVersionId, prerequisiteConceptId, dependentConceptId, relationType])
+  @@index([dependentConceptId])
+}
+
+model ConceptAnchor {
+  sourceVersionId Int
+  conceptId       Int
+  concept         Concept      @relation(fields: [conceptId, sourceVersionId], references: [id, sourceVersionId], onDelete: Cascade)
+  anchorId        Int
+  anchor          SourceAnchor @relation(fields: [anchorId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+
+  @@id([sourceVersionId, conceptId, anchorId])
+  @@index([anchorId])
+}
+
+model LearningUnit {
+  id               Int                    @id @default(autoincrement())
+  sourceVersionId  Int
+  sourceVersion    SourceVersion          @relation(fields: [sourceVersionId], references: [id], onDelete: Cascade)
+  position         Int
+  title            String
+  objective        String
+  estimatedMinutes Int
+  status           MapItemStatus          @default(PROPOSED)
+  confirmedAt      DateTime?
+  unitConcepts     LearningUnitConcept[]
+  unitAnchors      LearningUnitAnchor[]
+  contractUnits    LearningContractUnit[]
+  tutoringSessions TutoringSession[]
+
+  @@unique([sourceVersionId, position])
+  @@unique([id, sourceVersionId])
+  @@index([sourceVersionId, status])
+}
+
+model LearningUnitConcept {
+  sourceVersionId Int
+  learningUnitId  Int
+  learningUnit    LearningUnit @relation(fields: [learningUnitId, sourceVersionId], references: [id, sourceVersionId], onDelete: Cascade)
+  conceptId       Int
+  concept         Concept      @relation(fields: [conceptId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+  position        Int
+
+  @@id([sourceVersionId, learningUnitId, conceptId])
+  @@index([conceptId])
+}
+
+model LearningUnitAnchor {
+  sourceVersionId Int
+  learningUnitId  Int
+  learningUnit    LearningUnit @relation(fields: [learningUnitId, sourceVersionId], references: [id, sourceVersionId], onDelete: Cascade)
+  anchorId        Int
+  anchor          SourceAnchor @relation(fields: [anchorId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+
+  @@id([sourceVersionId, learningUnitId, anchorId])
+  @@index([anchorId])
+}
+
+model LearningProject {
+  id               Int                   @id @default(autoincrement())
+  userId           Int
+  user             User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceId         Int
+  source           LearningSource        @relation(fields: [sourceId, userId], references: [id, userId], onDelete: Cascade)
+  sourceVersionId  Int
+  sourceVersion    SourceVersion         @relation(fields: [sourceVersionId, userId, sourceId], references: [id, userId, sourceId], onDelete: NoAction)
+  title            String
+  status           LearningProjectStatus @default(DRAFT)
+  unitsConfirmedAt DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  contracts        LearningContract[]
+  tutoringSessions TutoringSession[]
+  conceptStates    ConceptState[]
+
+  @@unique([id, userId])
+  @@unique([id, userId, sourceVersionId])
+  @@index([userId, updatedAt(sort: Desc)])
+  @@index([userId, sourceId])
+  @@index([sourceVersionId])
+}
+
+model LearningContract {
+  id                Int                    @id @default(autoincrement())
+  userId            Int
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId         Int
+  sourceVersionId   Int
+  project           LearningProject        @relation(fields: [projectId, userId, sourceVersionId], references: [id, userId, sourceVersionId], onDelete: Cascade)
+  sourceVersion     SourceVersion          @relation(fields: [sourceVersionId, userId], references: [id, userId], onDelete: NoAction)
+  version           Int
+  goal              String
+  successCriteria   String?
+  timeBudgetMinutes Int
+  priorKnowledge    String?
+  status            LearningContractStatus @default(DRAFT)
+  confirmedAt       DateTime?
+  createdAt         DateTime               @default(now())
+  tutoringSessions  TutoringSession[]
+  contractUnits     LearningContractUnit[]
+
+  @@unique([projectId, version])
+  @@unique([id, userId])
+  @@unique([id, userId, projectId])
+  @@unique([id, userId, sourceVersionId])
+  @@unique([id, userId, projectId, sourceVersionId])
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model LearningContractUnit {
+  id              Int              @id @default(autoincrement())
+  contractId      Int
+  userId          Int
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceVersionId Int
+  contract        LearningContract @relation(fields: [contractId, userId, sourceVersionId], references: [id, userId, sourceVersionId], onDelete: Cascade)
+  learningUnitId  Int
+  learningUnit    LearningUnit     @relation(fields: [learningUnitId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+  position        Int
+  createdAt       DateTime         @default(now())
+
+  @@unique([contractId, learningUnitId])
+  @@unique([contractId, position])
+  @@index([userId, sourceVersionId])
+  @@index([learningUnitId])
+}
+
+model TutoringSession {
+  id                        Int                     @id @default(autoincrement())
+  userId                    Int
+  user                      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId                 Int
+  project                   LearningProject         @relation(fields: [projectId, userId, sourceVersionId], references: [id, userId, sourceVersionId], onDelete: Cascade)
+  learningContractId        Int
+  learningContract          LearningContract        @relation(fields: [learningContractId, userId, projectId, sourceVersionId], references: [id, userId, projectId, sourceVersionId], onDelete: NoAction)
+  sourceVersionId           Int
+  sourceVersion             SourceVersion           @relation(fields: [sourceVersionId, userId], references: [id, userId], onDelete: NoAction)
+  currentUnitId             Int?
+  currentUnit               LearningUnit?           @relation(fields: [currentUnitId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+  modelProfileId            Int
+  modelProfile              ModelProfile            @relation(fields: [modelProfileId], references: [id], onDelete: Restrict)
+  actionPromptVersionId     Int
+  actionPromptVersion       PromptVersion           @relation("SessionActionPrompt", fields: [actionPromptVersionId], references: [id], onDelete: Restrict)
+  evaluationPromptVersionId Int
+  evaluationPromptVersion   PromptVersion           @relation("SessionEvaluationPrompt", fields: [evaluationPromptVersionId], references: [id], onDelete: Restrict)
+  graphThreadId             String                  @unique
+  status                    TutoringSessionStatus   @default(ACTIVE)
+  currentTurn               Int                     @default(0)
+  maxTurns                  Int
+  startedAt                 DateTime                @default(now())
+  endedAt                   DateTime?
+  stopReason                String?
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
+  turns                     TutoringTurn[]
+  evidence                  UnderstandingEvidence[]
+  notes                     AtomicNote[]
+  modelCalls                ModelCall[]
+
+  @@unique([id, userId])
+  @@unique([id, userId, sourceVersionId])
+  @@index([userId, status, updatedAt(sort: Desc)])
+  @@index([projectId, status])
+  @@index([sourceVersionId])
+}
+
+model TutoringTurn {
+  id                 Int                     @id @default(autoincrement())
+  userId             Int
+  user               User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId          Int
+  sourceVersionId    Int
+  session            TutoringSession         @relation(fields: [sessionId, userId, sourceVersionId], references: [id, userId, sourceVersionId], onDelete: Cascade)
+  position           Int
+  idempotencyKey     String
+  status             TutoringTurnStatus      @default(PENDING)
+  targetConceptId    Int?
+  targetConcept      Concept?                @relation(fields: [targetConceptId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+  actionKind         TutorActionKind?
+  strategyKey        String?
+  tutorContent       String?
+  actionMetadata     Json?
+  userAnswer         String?
+  evaluationOutcome  EvaluationOutcome?
+  evaluationMetadata Json?
+  correlationId      String
+  startedAt          DateTime                @default(now())
+  completedAt        DateTime?
+  evidence           UnderstandingEvidence[]
+  notes              AtomicNote[]
+  modelCalls         ModelCall[]
+
+  @@unique([sessionId, position])
+  @@unique([sessionId, idempotencyKey])
+  @@unique([id, userId])
+  @@unique([id, userId, sourceVersionId])
+  @@unique([id, userId, sessionId, sourceVersionId])
+  @@index([userId, startedAt(sort: Desc)])
+  @@index([sessionId, status])
+  @@index([correlationId])
+}
+
+model UnderstandingEvidence {
+  id                 Int               @id @default(autoincrement())
+  userId             Int
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId          Int
+  sourceVersionId    Int
+  session            TutoringSession   @relation(fields: [sessionId, userId, sourceVersionId], references: [id, userId, sourceVersionId], onDelete: NoAction)
+  turnId             Int
+  turn               TutoringTurn      @relation(fields: [turnId, userId, sessionId, sourceVersionId], references: [id, userId, sessionId, sourceVersionId], onDelete: Cascade)
+  conceptId          Int
+  concept            Concept           @relation(fields: [conceptId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+  operationType      String
+  kind               EvidenceKind
+  outcome            EvaluationOutcome
+  correctness        Float
+  causalCompleteness Float
+  boundaryAwareness  Float
+  sourceAlignment    Float
+  transferAbility    Float
+  confirmedPoints    Json
+  omissions          Json
+  disagreements      Json?
+  createdAt          DateTime          @default(now())
+  anchors            EvidenceAnchor[]
+  profileEvidence    ProfileEvidence[]
+  notes              AtomicNote[]
+  latestForStates    ConceptState[]    @relation("LatestConceptEvidence")
+
+  @@unique([sessionId, turnId, operationType])
+  @@unique([id, userId])
+  @@unique([id, sourceVersionId])
+  @@unique([id, userId, sourceVersionId])
+  @@unique([id, userId, sourceVersionId, conceptId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([conceptId, createdAt(sort: Desc)])
+}
+
+model EvidenceAnchor {
+  sourceVersionId Int
+  evidenceId      Int
+  evidence        UnderstandingEvidence @relation(fields: [evidenceId, sourceVersionId], references: [id, sourceVersionId], onDelete: Cascade)
+  anchorId        Int
+  anchor          SourceAnchor          @relation(fields: [anchorId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+
+  @@id([sourceVersionId, evidenceId, anchorId])
+  @@index([anchorId])
+}
+
+model ConceptState {
+  id               Int                    @id @default(autoincrement())
+  userId           Int
+  user             User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId        Int
+  sourceVersionId  Int
+  project          LearningProject        @relation(fields: [projectId, userId, sourceVersionId], references: [id, userId, sourceVersionId], onDelete: Cascade)
+  conceptId        Int
+  concept          Concept                @relation(fields: [conceptId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+  level            UnderstandingLevel     @default(UNSEEN)
+  fragile          Boolean                @default(false)
+  latestEvidenceId Int?
+  latestEvidence   UnderstandingEvidence? @relation("LatestConceptEvidence", fields: [latestEvidenceId, userId, sourceVersionId, conceptId], references: [id, userId, sourceVersionId, conceptId], onDelete: NoAction)
+  disagreement     String?
+  updatedAt        DateTime               @updatedAt
+
+  @@unique([projectId, conceptId])
+  @@unique([id, userId])
+  @@index([userId, level])
+  @@index([userId, updatedAt(sort: Desc)])
+}
+
+model LearnerStrategy {
+  id            Int               @id @default(autoincrement())
+  userId        Int
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  strategyKey   String
+  enabled       Boolean           @default(true)
+  weight        Float             @default(0)
+  confidence    Float             @default(0)
+  evidenceCount Int               @default(0)
+  statistics    Json?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  evidence      ProfileEvidence[]
+
+  @@unique([userId, strategyKey])
+  @@unique([id, userId])
+  @@index([userId, enabled])
+}
+
+model ProfileEvidence {
+  id         Int                   @id @default(autoincrement())
+  userId     Int
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  strategyId Int
+  strategy   LearnerStrategy       @relation(fields: [strategyId, userId], references: [id, userId], onDelete: Cascade)
+  evidenceId Int
+  evidence   UnderstandingEvidence @relation(fields: [evidenceId, userId], references: [id, userId], onDelete: Cascade)
+  effect     String
+  confidence Float
+  createdAt  DateTime              @default(now())
+
+  @@unique([strategyId, evidenceId])
+  @@index([evidenceId])
+  @@index([userId])
+}
+
+model AtomicNote {
+  id                Int                    @id @default(autoincrement())
+  userId            Int
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tutoringSessionId Int
+  tutoringSession   TutoringSession        @relation(fields: [tutoringSessionId, userId, sourceVersionId], references: [id, userId, sourceVersionId], onDelete: Cascade)
+  sourceTurnId      Int
+  sourceTurn        TutoringTurn           @relation(fields: [sourceTurnId, userId, tutoringSessionId, sourceVersionId], references: [id, userId, sessionId, sourceVersionId], onDelete: NoAction)
+  sourceVersionId   Int
+  sourceVersion     SourceVersion          @relation(fields: [sourceVersionId, userId], references: [id, userId], onDelete: NoAction)
+  evidenceId        Int?
+  evidence          UnderstandingEvidence? @relation(fields: [evidenceId, userId, sourceVersionId], references: [id, userId, sourceVersionId], onDelete: NoAction)
+  idempotencyKey    String
+  title             String
+  claim             String
+  explanation       String
+  userAnswer        String
+  personalExample   String?
+  applicability     String?
+  boundaries        String?
+  status            NoteStatus             @default(DRAFT)
+  confirmedAt       DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  anchors           AtomicNoteAnchor[]
+  outgoingLinks     AtomicNoteLink[]       @relation("AtomicNoteSource")
+  incomingLinks     AtomicNoteLink[]       @relation("AtomicNoteTarget")
+
+  @@unique([userId, idempotencyKey])
+  @@unique([id, userId])
+  @@unique([id, sourceVersionId])
+  @@index([userId, status, updatedAt(sort: Desc)])
+  @@index([sourceVersionId])
+  @@index([sourceTurnId])
+}
+
+model AtomicNoteAnchor {
+  sourceVersionId Int
+  noteId          Int
+  note            AtomicNote   @relation(fields: [noteId, sourceVersionId], references: [id, sourceVersionId], onDelete: Cascade)
+  anchorId        Int
+  anchor          SourceAnchor @relation(fields: [anchorId, sourceVersionId], references: [id, sourceVersionId], onDelete: NoAction)
+
+  @@id([sourceVersionId, noteId, anchorId])
+  @@index([anchorId])
+}
+
+model AtomicNoteLink {
+  id           Int            @id @default(autoincrement())
+  userId       Int
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceNoteId Int
+  sourceNote   AtomicNote     @relation("AtomicNoteSource", fields: [sourceNoteId, userId], references: [id, userId], onDelete: Cascade)
+  targetNoteId Int
+  targetNote   AtomicNote     @relation("AtomicNoteTarget", fields: [targetNoteId, userId], references: [id, userId], onDelete: Cascade)
+  relationType String
+  status       NoteLinkStatus @default(SUGGESTED)
+  confirmedAt  DateTime?
+  createdAt    DateTime       @default(now())
+
+  @@unique([userId, sourceNoteId, targetNoteId, relationType])
+  @@index([userId, status])
+  @@index([targetNoteId])
+}
+
+model ModelProvider {
+  id              Int            @id @default(autoincrement())
+  name            String         @unique
+  baseUrl         String
+  encryptedApiKey String
+  enabled         Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  profiles        ModelProfile[]
+
+  @@index([enabled])
+}
+
+model ModelProfile {
+  id                Int               @id @default(autoincrement())
+  name              String
+  version           Int
+  providerId        Int
+  provider          ModelProvider     @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  modelName         String
+  status            ModelConfigStatus @default(DRAFT)
+  temperature       Float?
+  maxOutputTokens   Int?
+  timeoutMs         Int
+  maxRetries        Int               @default(1)
+  fallbackOrder     Int               @default(0)
+  fallbackProfileId Int?
+  fallbackProfile   ModelProfile?     @relation("ModelProfileFallback", fields: [fallbackProfileId], references: [id], onDelete: SetNull)
+  fallbackFor       ModelProfile[]    @relation("ModelProfileFallback")
+  publishedAt       DateTime?
+  createdAt         DateTime          @default(now())
+  tutoringSessions  TutoringSession[]
+  modelCalls        ModelCall[]
+
+  @@unique([name, version])
+  @@index([providerId, status])
+  @@index([status, fallbackOrder])
+}
+
+model PromptVersion {
+  id                  Int               @id @default(autoincrement())
+  kind                PromptKind
+  version             Int
+  content             String
+  outputSchemaVersion String
+  status              ModelConfigStatus @default(DRAFT)
+  publishedAt         DateTime?
+  createdAt           DateTime          @default(now())
+  actionSessions      TutoringSession[] @relation("SessionActionPrompt")
+  evaluationSessions  TutoringSession[] @relation("SessionEvaluationPrompt")
+  modelCalls          ModelCall[]
+
+  @@unique([kind, version])
+  @@index([kind, status])
+}
+
+model ModelCall {
+  id                Int              @id @default(autoincrement())
+  userId            Int
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tutoringSessionId Int?
+  tutoringSession   TutoringSession? @relation(fields: [tutoringSessionId, userId], references: [id, userId], onDelete: Cascade)
+  tutoringTurnId    Int?
+  tutoringTurn      TutoringTurn?    @relation(fields: [tutoringTurnId, userId], references: [id, userId], onDelete: NoAction)
+  modelProfileId    Int
+  modelProfile      ModelProfile     @relation(fields: [modelProfileId], references: [id], onDelete: Restrict)
+  promptVersionId   Int
+  promptVersion     PromptVersion    @relation(fields: [promptVersionId], references: [id], onDelete: Restrict)
+  status            ModelCallStatus  @default(PENDING)
+  inputTokens       Int              @default(0)
+  outputTokens      Int              @default(0)
+  costMicros        BigInt?
+  latencyMs         Int?
+  attemptCount      Int              @default(1)
+  sanitizedError    String?
+  errorCategory     String?
+  correlationId     String
+  createdAt         DateTime         @default(now())
+  completedAt       DateTime?
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([modelProfileId, status, createdAt(sort: Desc)])
+  @@index([correlationId])
+}
+
+model QuotaPolicy {
+  id        Int         @id @default(autoincrement())
+  metric    QuotaMetric
+  limit     BigInt
+  period    String?
+  enabled   Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([metric])
+}
+
+model UserQuotaOverride {
+  id        Int         @id @default(autoincrement())
+  userId    Int
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  metric    QuotaMetric
+  limit     BigInt
+  period    String?
+  reason    String
+  expiresAt DateTime?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([userId, metric])
+  @@index([userId, expiresAt])
 }

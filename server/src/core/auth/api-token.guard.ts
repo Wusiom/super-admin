@@ -5,7 +5,12 @@ import {
   UnauthorizedException,
   Logger,
 } from '@nestjs/common';
-import { ApiTokenService } from './api-token.service';
+import { ApiTokenPrincipal, ApiTokenService } from './api-token.service';
+
+export interface ApiTokenAuthenticatedRequest {
+  headers: { authorization?: string };
+  apiTokenPrincipal?: ApiTokenPrincipal;
+}
 
 @Injectable()
 export class ApiTokenGuard implements CanActivate {
@@ -14,25 +19,31 @@ export class ApiTokenGuard implements CanActivate {
   constructor(private readonly apiTokenService: ApiTokenService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest();
+    const request = context
+      .switchToHttp()
+      .getRequest<ApiTokenAuthenticatedRequest>();
     const authHeader = request.headers.authorization;
 
-    // 无 Authorization header → 放行（Web 前端请求，走 session 或无认证）
     if (!authHeader) {
-      return true;
+      throw new UnauthorizedException('API token is required');
     }
 
-    const [scheme, token] = authHeader.split(' ');
+    const match = /^Bearer ([^\s]+)$/.exec(authHeader);
 
-    if (scheme !== 'Bearer' || !token) {
-      throw new UnauthorizedException('Invalid authorization format. Expected: Bearer <token>');
+    if (!match) {
+      throw new UnauthorizedException(
+        'Invalid authorization format. Expected: Bearer <token>',
+      );
     }
 
-    const isValid = await this.apiTokenService.validate(token);
-    if (!isValid) {
+    const token = match[1];
+
+    const principal = await this.apiTokenService.validate(token);
+    if (!principal || !principal.scopes.includes('capture:create')) {
       throw new UnauthorizedException('Invalid API token');
     }
 
+    request.apiTokenPrincipal = principal;
     return true;
   }
 }

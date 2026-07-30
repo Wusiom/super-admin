@@ -23,7 +23,10 @@ class FakeElement {
 
   get textContent() {
     if (this.removed) return '';
-    return this.innerHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return this.innerHtml
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   remove() {
@@ -71,7 +74,8 @@ class FakeBody extends FakeElement {
         (selector === 'article' && child.tagName === 'ARTICLE') ||
         (selector === 'aside' && child.tagName === 'ASIDE') ||
         (selector === 'nav' && child.tagName === 'NAV') ||
-        (selector === '.doc-reader' && child.className.includes('doc-reader')) ||
+        (selector === '.doc-reader' &&
+          child.className.includes('doc-reader')) ||
         (selector.includes('toc') && child.className.includes('toc'));
       return [
         ...(selfMatches ? [child] : []),
@@ -160,6 +164,7 @@ describe('captureProcessor snapshot capture', () => {
     const result = await captureProcessor({
       data: {
         url: 'https://www.yuque.com/example/doc',
+        userId: 99,
         jobRecordId: 7,
         pageHtml: `
           <html>
@@ -182,6 +187,7 @@ describe('captureProcessor snapshot capture', () => {
         title: 'Real Yuque Doc',
         url: 'https://www.yuque.com/example/doc',
         status: 'published',
+        userId: 99,
         jobId: 7,
       }),
     });
@@ -298,7 +304,8 @@ describe('captureProcessor snapshot capture', () => {
         },
       } as any),
     ).rejects.toMatchObject({
-      message: 'Page requires authentication or subscription to view full content',
+      message:
+        'Page requires authentication or subscription to view full content',
       jobErrorType: 'LOCKED_CONTENT',
     });
 

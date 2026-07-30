@@ -69,7 +69,7 @@ describe('AppModule', () => {
 
       await moduleRef.init();
       expect(moduleRef.get(AppModule)).toBeInstanceOf(AppModule);
-      expect(prisma.apiToken.findFirst).toHaveBeenCalledTimes(1);
+      expect(prisma.apiToken.findFirst).not.toHaveBeenCalled();
       expect(prisma.tool.upsert).toHaveBeenCalledTimes(1);
       expect(bullMq.registerProcessor).toHaveBeenCalledTimes(1);
     } finally {

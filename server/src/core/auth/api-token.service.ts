@@ -8,25 +8,8 @@ export class ApiTokenService implements OnModuleInit {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async onModuleInit() {
-    const existing = await this.prisma.apiToken.findFirst();
-    if (existing) {
-      this.logger.log('ApiToken 已存在，不覆盖');
-      return;
-    }
-
-    // 首次启动：自动生成 token
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const hash = this.hashToken(rawToken);
-
-    await this.prisma.apiToken.create({
-      data: { token: hash, label: 'default' },
-    });
-
-    this.logger.warn('=' .repeat(60));
-    this.logger.warn('🔑 首次启动，已自动生成 API Token（请妥善保存）：');
-    this.logger.warn(rawToken);
-    this.logger.warn('=' .repeat(60));
+  async onModuleInit(): Promise<void> {
+    // Token 必须由已认证用户显式创建，应用启动不得制造无主凭据。
   }
 
   /** SHA-256 哈希 raw token，返回 hex 字符串 */
@@ -34,32 +17,47 @@ export class ApiTokenService implements OnModuleInit {
     return crypto.createHash('sha256').update(rawToken).digest('hex');
   }
 
-  /** 验证 raw token 是否匹配数据库中任一有效 token */
-  async validate(rawToken: string): Promise<boolean> {
+  /** 验证 raw token，并返回只能由服务端建立的所有者上下文。 */
+  async validate(rawToken: string): Promise<ApiTokenPrincipal | null> {
     const hash = this.hashToken(rawToken);
-    const token = await this.prisma.apiToken.findUnique({ where: { token: hash } });
-    return token !== null;
+    const token = await this.prisma.apiToken.findUnique({
+      where: { tokenHash: hash },
+    });
+    if (
+      !token ||
+      token.revokedAt ||
+      (token.expiresAt && token.expiresAt <= new Date())
+    ) {
+      return null;
+    }
+
+    await this.prisma.apiToken.update({
+      where: { id: token.id },
+      data: { lastUsedAt: new Date() },
+    });
+    return { userId: token.userId, scopes: token.scopes };
   }
 
-  /** 生成新 token，覆盖旧值。返回 raw token。 */
-  async generateNewToken(): Promise<string> {
+  /** 为已认证用户生成扩展 Token，仅返回一次原文。 */
+  async generateNewToken(userId: number): Promise<string> {
     const rawToken = crypto.randomBytes(32).toString('hex');
     const hash = this.hashToken(rawToken);
 
-    // 使用 upsert：有则更新，无则创建
-    const existing = await this.prisma.apiToken.findFirst();
-    if (existing) {
-      await this.prisma.apiToken.update({
-        where: { id: existing.id },
-        data: { token: hash },
-      });
-    } else {
-      await this.prisma.apiToken.create({
-        data: { token: hash, label: 'default' },
-      });
-    }
+    await this.prisma.apiToken.create({
+      data: {
+        userId,
+        tokenHash: hash,
+        label: 'extension',
+        scopes: ['capture:create'],
+      },
+    });
 
-    this.logger.log('ApiToken 已刷新（旧 token 已失效）');
+    this.logger.log(`用户 ${userId} 已创建扩展 API Token`);
     return rawToken;
   }
+}
+
+export interface ApiTokenPrincipal {
+  userId: number;
+  scopes: string[];
 }

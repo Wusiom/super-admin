@@ -1,4 +1,10 @@
-import { Controller, Get, Logger } from '@nestjs/common';
+import {
+  Controller,
+  Logger,
+  Post,
+  Req,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ApiTokenService } from './api-token.service';
 
 @Controller('api/auth')
@@ -7,9 +13,14 @@ export class ApiTokenController {
 
   constructor(private readonly apiTokenService: ApiTokenService) {}
 
-  @Get('token')
-  async getToken(): Promise<{ token: string }> {
-    const token = await this.apiTokenService.generateNewToken();
+  @Post('token')
+  async getToken(
+    @Req() request: { user?: { id: number } },
+  ): Promise<{ token: string }> {
+    if (!request.user) {
+      throw new UnauthorizedException('Authenticated user is required');
+    }
+    const token = await this.apiTokenService.generateNewToken(request.user.id);
     return { token };
   }
 }
