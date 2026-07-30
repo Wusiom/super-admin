@@ -26,6 +26,14 @@ type StoredToken = {
   createdAt: Date;
 };
 
+type FindTokenArgs = {
+  where: {
+    userId: number;
+    consumedAt?: null;
+    revokedAt?: null;
+  };
+};
+
 function createPrismaFake() {
   const users: StoredUser[] = [];
   const emailTokens: StoredToken[] = [];
@@ -65,16 +73,8 @@ function createPrismaFake() {
         user: users.find((user) => user.id === token.userId),
       };
     }),
-    findFirst: jest.fn(
-      async ({
-        where,
-      }: {
-        where: {
-          userId: number;
-          consumedAt?: null;
-          revokedAt?: null;
-        };
-      }) =>
+    findFirst: jest.fn(async ({ where }: FindTokenArgs) => {
+      return (
         [...tokens]
           .reverse()
           .find(
@@ -82,8 +82,9 @@ function createPrismaFake() {
               token.userId === where.userId &&
               (where.consumedAt !== null || token.consumedAt === null) &&
               (where.revokedAt !== null || token.revokedAt === null),
-          ) ?? null,
-    ),
+          ) ?? null
+      );
+    }),
     updateMany: jest.fn(
       async ({
         where,
@@ -116,6 +117,7 @@ function createPrismaFake() {
     ),
   });
 
+  let serializableTail = Promise.resolve();
   const prisma = {
     user: {
       findUnique: jest.fn(
@@ -179,12 +181,41 @@ function createPrismaFake() {
     },
     emailToken: tokenDelegate(emailTokens),
     passwordResetToken: tokenDelegate(passwordResetTokens),
-    $transaction: jest.fn(async (operation: unknown) => {
-      if (typeof operation === 'function') {
-        return operation(prisma);
-      }
-      return Promise.all(operation as Promise<unknown>[]);
-    }),
+    $transaction: jest.fn(
+      async (operation: unknown, options?: { isolationLevel?: string }) => {
+        if (typeof operation === 'function') {
+          const execute = () =>
+            operation(transactionClient) as Promise<unknown>;
+          if (options?.isolationLevel !== 'Serializable') {
+            return execute();
+          }
+
+          const previousTransaction = serializableTail;
+          let releaseTransaction: () => void = () => undefined;
+          serializableTail = new Promise<void>((resolve) => {
+            releaseTransaction = resolve;
+          });
+          await previousTransaction;
+          try {
+            return await execute();
+          } finally {
+            releaseTransaction();
+          }
+        }
+        return Promise.all(operation as Promise<unknown>[]);
+      },
+    ),
+  };
+  const rootFindFirst = prisma.emailToken.findFirst.getMockImplementation();
+  if (!rootFindFirst) {
+    throw new Error('emailToken.findFirst fake is required');
+  }
+  const transactionClient = {
+    ...prisma,
+    emailToken: {
+      ...prisma.emailToken,
+      findFirst: jest.fn(rootFindFirst),
+    },
   };
 
   return { prisma, users, emailTokens, passwordResetTokens };
@@ -345,6 +376,103 @@ describe('AccountsService', () => {
     expect(emailTokens[1].tokenHash).not.toBe(
       mail.sendVerification.mock.calls[1][1],
     );
+  });
+
+  it('两个并发重发请求在边界到达时只签发并发送一个新令牌', async () => {
+    const { service, mail, prisma, emailTokens } = createFixture();
+    await service.register({
+      email: 'alice@example.com',
+      password: 'Correct-Horse-Battery-Staple-42',
+    });
+    jest.advanceTimersByTime(60_000);
+
+    const readLatestToken = prisma.emailToken.findFirst.getMockImplementation();
+    if (!readLatestToken) {
+      throw new Error('emailToken.findFirst fake is required');
+    }
+    let concurrentReads = 0;
+    let releaseReads: () => void = () => undefined;
+    const bothReadsStarted = new Promise<void>((resolve) => {
+      releaseReads = resolve;
+    });
+    prisma.emailToken.findFirst.mockImplementation(async (args) => {
+      const snapshot = await readLatestToken(args);
+      concurrentReads += 1;
+      if (concurrentReads === 2) {
+        releaseReads();
+      }
+      await bothReadsStarted;
+      return snapshot;
+    });
+
+    const responses = await Promise.all([
+      service.resendVerification('alice@example.com'),
+      service.resendVerification(' ALICE@EXAMPLE.COM '),
+    ]);
+
+    expect(responses[0]).toEqual(responses[1]);
+    expect(emailTokens).toHaveLength(2);
+    expect(
+      emailTokens.filter(
+        (token) => token.consumedAt === null && token.revokedAt === null,
+      ),
+    ).toHaveLength(1);
+    expect(mail.sendVerification).toHaveBeenCalledTimes(2);
+  });
+
+  it('Serializable 事务遇到一次 P2034 后重试并只发送实际签发的令牌', async () => {
+    const { service, mail, prisma, emailTokens } = createFixture();
+    await service.register({
+      email: 'alice@example.com',
+      password: 'Correct-Horse-Battery-Staple-42',
+    });
+    jest.advanceTimersByTime(60_000);
+
+    const runTransaction = prisma.$transaction.getMockImplementation();
+    if (!runTransaction) {
+      throw new Error('$transaction fake is required');
+    }
+    let conflicts = 0;
+    prisma.$transaction.mockImplementation(async (operation, options) => {
+      if (options?.isolationLevel === 'Serializable' && conflicts === 0) {
+        conflicts += 1;
+        throw Object.assign(new Error('serialization conflict'), {
+          code: 'P2034',
+        });
+      }
+      return runTransaction(operation, options);
+    });
+
+    await expect(
+      service.resendVerification('alice@example.com'),
+    ).resolves.toEqual(await service.resendVerification('unknown@example.com'));
+    expect(conflicts).toBe(1);
+    expect(emailTokens).toHaveLength(2);
+    expect(mail.sendVerification).toHaveBeenCalledTimes(2);
+  });
+
+  it('P2034 持续发生时只有限重试并保持通用响应且不发送邮件', async () => {
+    const { service, mail, prisma, emailTokens } = createFixture();
+    await service.register({
+      email: 'alice@example.com',
+      password: 'Correct-Horse-Battery-Staple-42',
+    });
+    jest.advanceTimersByTime(60_000);
+    prisma.$transaction.mockClear();
+    prisma.$transaction.mockRejectedValue(
+      Object.assign(new Error('serialization conflict'), { code: 'P2034' }),
+    );
+
+    const genericResponse = await service.resendVerification(
+      'unknown@example.com',
+    );
+    await expect(
+      service.resendVerification('alice@example.com'),
+    ).resolves.toEqual(genericResponse);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+    expect(emailTokens).toHaveLength(1);
+    expect(mail.sendVerification).toHaveBeenCalledTimes(1);
   });
 
   it('未知、未验证与已验证邮箱收到完全一致的找回响应，且只有已验证账户收到限时链接', async () => {

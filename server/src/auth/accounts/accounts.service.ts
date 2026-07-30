@@ -17,6 +17,7 @@ import { RegisterDto } from './dto/register.dto';
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 const VERIFICATION_RESEND_INTERVAL_MS = 60 * 1000;
+const SERIALIZABLE_TRANSACTION_MAX_ATTEMPTS = 3;
 
 const REGISTRATION_RESPONSE = {
   message: '注册成功，请检查邮箱完成验证。',
@@ -169,43 +170,17 @@ export class AccountsService {
     }
 
     const now = new Date();
-    const latestToken = await this.prisma.emailToken.findFirst({
-      where: {
-        userId: user.id,
-        consumedAt: null,
-        revokedAt: null,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (
-      latestToken &&
-      latestToken.createdAt >
-        new Date(now.getTime() - VERIFICATION_RESEND_INTERVAL_MS)
-    ) {
-      return { ...VERIFICATION_RESEND_RESPONSE };
-    }
-
     const rawToken = this.createRawToken();
-    await this.prisma.$transaction(async (transaction) => {
-      await transaction.emailToken.updateMany({
-        where: {
-          userId: user.id,
-          consumedAt: null,
-          revokedAt: null,
-        },
-        data: { revokedAt: now },
-      });
-      await transaction.emailToken.create({
-        data: {
-          userId: user.id,
-          tokenHash: this.hashToken(rawToken),
-          expiresAt: new Date(now.getTime() + VERIFICATION_TOKEN_TTL_MS),
-        },
-      });
-    });
-    await this.sendWithoutExposingFailure(() =>
-      this.mail.sendVerification(user.email, rawToken),
+    const issued = await this.issueVerificationToken(
+      user.id,
+      this.hashToken(rawToken),
+      now,
     );
+    if (issued) {
+      await this.sendWithoutExposingFailure(() =>
+        this.mail.sendVerification(user.email, rawToken),
+      );
+    }
 
     return { ...VERIFICATION_RESEND_RESPONSE };
   }
@@ -264,12 +239,77 @@ export class AccountsService {
     return createHash('sha256').update(token).digest('hex');
   }
 
+  private async issueVerificationToken(
+    userId: number,
+    tokenHash: string,
+    now: Date,
+  ): Promise<boolean> {
+    for (
+      let attempt = 1;
+      attempt <= SERIALIZABLE_TRANSACTION_MAX_ATTEMPTS;
+      attempt += 1
+    ) {
+      try {
+        return await this.prisma.$transaction(
+          async (transaction: Prisma.TransactionClient) => {
+            const latestToken = await transaction.emailToken.findFirst({
+              where: {
+                userId,
+                consumedAt: null,
+                revokedAt: null,
+              },
+              orderBy: { createdAt: 'desc' },
+            });
+            if (
+              latestToken &&
+              latestToken.createdAt >
+                new Date(now.getTime() - VERIFICATION_RESEND_INTERVAL_MS)
+            ) {
+              return false;
+            }
+
+            await transaction.emailToken.updateMany({
+              where: {
+                userId,
+                consumedAt: null,
+                revokedAt: null,
+              },
+              data: { revokedAt: now },
+            });
+            await transaction.emailToken.create({
+              data: {
+                userId,
+                tokenHash,
+                expiresAt: new Date(now.getTime() + VERIFICATION_TOKEN_TTL_MS),
+              },
+            });
+            return true;
+          },
+          { isolationLevel: 'Serializable' },
+        );
+      } catch (error: unknown) {
+        if (!this.hasPrismaErrorCode(error, 'P2034')) {
+          throw error;
+        }
+        if (attempt === SERIALIZABLE_TRANSACTION_MAX_ATTEMPTS) {
+          return false;
+        }
+      }
+    }
+
+    return false;
+  }
+
   private isUniqueConstraint(error: unknown): boolean {
+    return this.hasPrismaErrorCode(error, 'P2002');
+  }
+
+  private hasPrismaErrorCode(error: unknown, code: string): boolean {
     return (
       typeof error === 'object' &&
       error !== null &&
       'code' in error &&
-      error.code === 'P2002'
+      error.code === code
     );
   }
 
