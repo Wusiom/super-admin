@@ -7,6 +7,8 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
+    "db:migrate:sqlite": "node dist/scripts/migrate-sqlite-to-postgres.js",
+    "db:migrate:sqlite:dev": "ts-node --transpile-only scripts/migrate-sqlite-to-postgres.ts",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -88,7 +90,8 @@
     "rootDir": ".",
     "roots": [
       "<rootDir>/src",
-      "<rootDir>/prisma"
+      "<rootDir>/prisma",
+      "<rootDir>/scripts"
     ],
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
