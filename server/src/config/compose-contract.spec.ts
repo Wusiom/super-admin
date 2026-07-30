@@ -95,6 +95,8 @@ function readMergedCompose(): ComposeDocument {
         JWT_ACCESS_SECRET: 'test-jwt-access-secret-at-least-32-characters',
         TOKEN_ENCRYPTION_KEY:
           '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        TEST_POSTGRES_PORT: '15432',
+        TEST_CLIENT_PORT: '18080',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -270,7 +272,7 @@ describe('Docker Compose 契约', () => {
       }
     });
 
-    it('使用显式非生产凭据且不暴露配套服务宿主端口', () => {
+    it('使用显式非生产凭据，仅通过回环暴露 PostgreSQL，其他配套服务不暴露', () => {
       expect(testCompose.services.postgres.environment).toMatchObject({
         POSTGRES_DB: 'super_admin_test',
         POSTGRES_USER: 'super_admin_test',
@@ -286,13 +288,24 @@ describe('Docker Compose 契约', () => {
           '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
       });
 
-      for (const serviceName of ['postgres', 'redis', 'minio', 'mailpit']) {
+      expect(testCompose.services.postgres.ports).toEqual([
+        '127.0.0.1:${TEST_POSTGRES_PORT:-15432}:5432',
+      ]);
+
+      for (const serviceName of ['redis', 'minio', 'mailpit']) {
         expect(testCompose.services[serviceName].ports).toEqual([]);
       }
     });
 
     it('静态覆盖标签位于对应服务的端口和数据卷字段', () => {
-      for (const serviceName of ['postgres', 'redis', 'minio']) {
+      const postgresSource = readServiceSource(
+        'docker-compose.test.yml',
+        'postgres',
+      );
+      expect(postgresSource).toMatch(/^    volumes: !reset \[\]$/m);
+      expect(postgresSource).toMatch(/^    ports: !override$/m);
+
+      for (const serviceName of ['redis', 'minio']) {
         const serviceSource = readServiceSource(
           'docker-compose.test.yml',
           serviceName,
@@ -313,13 +326,42 @@ describe('Docker Compose 契约', () => {
 
     const realMergeTest = hasDockerCompose() ? it : it.skip;
     realMergeTest('使用 Docker Compose 真实合并语义隔离端口和状态数据', () => {
-      const merged = readMergedCompose();
+      const previousPostgresPort = process.env.TEST_POSTGRES_PORT;
+      const previousClientPort = process.env.TEST_CLIENT_PORT;
+      process.env.TEST_POSTGRES_PORT = '25432';
+      process.env.TEST_CLIENT_PORT = '28080';
+      let merged: ComposeDocument;
+      try {
+        merged = readMergedCompose();
+      } finally {
+        if (previousPostgresPort === undefined) {
+          delete process.env.TEST_POSTGRES_PORT;
+        } else {
+          process.env.TEST_POSTGRES_PORT = previousPostgresPort;
+        }
+        if (previousClientPort === undefined) {
+          delete process.env.TEST_CLIENT_PORT;
+        } else {
+          process.env.TEST_CLIENT_PORT = previousClientPort;
+        }
+      }
 
       for (const serviceName of ['postgres', 'redis', 'minio']) {
         const service = merged.services[serviceName];
-        expect(service.ports ?? []).toEqual([]);
         expect(service.volumes ?? []).toEqual([]);
         expect(service.tmpfs).toBeDefined();
+      }
+
+      expect(merged.services.postgres.ports).toEqual([
+        expect.objectContaining({
+          host_ip: '127.0.0.1',
+          published: '15432',
+          target: 5432,
+          protocol: 'tcp',
+        }),
+      ]);
+      for (const serviceName of ['redis', 'minio']) {
+        expect(merged.services[serviceName].ports ?? []).toEqual([]);
       }
 
       for (const serviceName of ['mailpit', 'server']) {
