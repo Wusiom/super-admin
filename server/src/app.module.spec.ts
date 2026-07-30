@@ -1,6 +1,8 @@
 import { Test } from '@nestjs/testing';
 import { PrismaService } from './prisma/prisma.service';
 import { BullMqService } from './core/bullmq.service';
+import { AccountsService } from './auth/accounts/accounts.service';
+import { MailService } from './auth/mail/mail.service';
 
 jest.mock('jsdom', () => ({
   JSDOM: jest.fn(),
@@ -66,6 +68,8 @@ describe('AppModule', () => {
     try {
       expect(moduleRef.get(PrismaService)).toBe(prisma);
       expect(moduleRef.get(BullMqService)).toBe(bullMq);
+      expect(moduleRef.get(AccountsService)).toBeInstanceOf(AccountsService);
+      expect(moduleRef.get(MailService)).toBeInstanceOf(MailService);
 
       await moduleRef.init();
       expect(moduleRef.get(AppModule)).toBeInstanceOf(AppModule);
