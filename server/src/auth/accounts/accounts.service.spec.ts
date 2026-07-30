@@ -34,71 +34,118 @@ type FindTokenArgs = {
   };
 };
 
+type CreateTokenArgs = {
+  data: Omit<StoredToken, 'id' | 'createdAt' | 'consumedAt' | 'revokedAt'>;
+};
+
+type FindUniqueTokenArgs = {
+  where: { tokenHash: string };
+};
+
+type UpdateTokensArgs = {
+  where: {
+    id?: number;
+    userId?: number;
+    consumedAt?: null;
+    revokedAt?: null;
+    expiresAt?: { gt: Date };
+  };
+  data: Partial<StoredToken>;
+};
+
+type TokenWithUser = StoredToken & { user: StoredUser | undefined };
+
+type TokenDelegateFake = {
+  create: jest.Mock<Promise<StoredToken>, [CreateTokenArgs]>;
+  findUnique: jest.Mock<Promise<TokenWithUser | null>, [FindUniqueTokenArgs]>;
+  findFirst: jest.Mock<Promise<StoredToken | null>, [FindTokenArgs]>;
+  updateMany: jest.Mock<Promise<{ count: number }>, [UpdateTokensArgs]>;
+};
+
+type FindUserArgs = {
+  where: { emailNormalized?: string; id?: number };
+};
+
+type CreateUserArgs = {
+  data: Pick<StoredUser, 'email' | 'emailNormalized' | 'passwordHash'>;
+};
+
+type UpdateUserArgs = {
+  where: { id: number };
+  data: Partial<StoredUser>;
+};
+
+type UserDelegateFake = {
+  findUnique: jest.Mock<Promise<StoredUser | null>, [FindUserArgs]>;
+  create: jest.Mock<Promise<StoredUser>, [CreateUserArgs]>;
+  update: jest.Mock<Promise<StoredUser>, [UpdateUserArgs]>;
+};
+
+type TransactionClientFake = {
+  user: UserDelegateFake;
+  emailToken: TokenDelegateFake;
+  passwordResetToken: TokenDelegateFake;
+};
+
+type TransactionOptions = { isolationLevel?: string };
+type TransactionOperation =
+  | ((transaction: TransactionClientFake) => Promise<unknown>)
+  | Promise<unknown>[];
+type TransactionMock = jest.Mock<
+  Promise<unknown>,
+  [TransactionOperation, TransactionOptions?]
+>;
+type PrismaFake = TransactionClientFake & {
+  $transaction: TransactionMock;
+};
+
 function createPrismaFake() {
   const users: StoredUser[] = [];
   const emailTokens: StoredToken[] = [];
   const passwordResetTokens: StoredToken[] = [];
 
-  const tokenDelegate = (tokens: StoredToken[]) => ({
-    create: jest.fn(
-      async ({
-        data,
-      }: {
-        data: Omit<
-          StoredToken,
-          'id' | 'createdAt' | 'consumedAt' | 'revokedAt'
-        >;
-      }) => {
-        const token: StoredToken = {
-          id: tokens.length + 1,
-          ...data,
-          consumedAt: null,
-          revokedAt: null,
-          createdAt: new Date(),
-        };
-        tokens.push(token);
-        return token;
+  const tokenDelegate = (tokens: StoredToken[]): TokenDelegateFake => ({
+    create: jest.fn<Promise<StoredToken>, [CreateTokenArgs]>(({ data }) => {
+      const token: StoredToken = {
+        id: tokens.length + 1,
+        ...data,
+        consumedAt: null,
+        revokedAt: null,
+        createdAt: new Date(),
+      };
+      tokens.push(token);
+      return Promise.resolve(token);
+    }),
+    findUnique: jest.fn<Promise<TokenWithUser | null>, [FindUniqueTokenArgs]>(
+      ({ where }) => {
+        const token = tokens.find(
+          (candidate) => candidate.tokenHash === where.tokenHash,
+        );
+        if (!token) {
+          return Promise.resolve(null);
+        }
+
+        return Promise.resolve({
+          ...token,
+          user: users.find((user) => user.id === token.userId),
+        });
       },
     ),
-    findUnique: jest.fn(async ({ where }: { where: { tokenHash: string } }) => {
-      const token = tokens.find(
-        (candidate) => candidate.tokenHash === where.tokenHash,
-      );
-      if (!token) {
-        return null;
-      }
-
-      return {
-        ...token,
-        user: users.find((user) => user.id === token.userId),
-      };
-    }),
-    findFirst: jest.fn(async ({ where }: FindTokenArgs) => {
-      return (
-        [...tokens]
-          .reverse()
-          .find(
-            (token) =>
-              token.userId === where.userId &&
-              (where.consumedAt !== null || token.consumedAt === null) &&
-              (where.revokedAt !== null || token.revokedAt === null),
-          ) ?? null
-      );
-    }),
-    updateMany: jest.fn(
-      async ({
-        where,
-        data,
-      }: {
-        where: {
-          id?: number;
-          userId?: number;
-          consumedAt?: null;
-          revokedAt?: null;
-          expiresAt?: { gt: Date };
-        };
-        data: Partial<StoredToken>;
-      }) => {
+    findFirst: jest.fn<Promise<StoredToken | null>, [FindTokenArgs]>(
+      ({ where }) =>
+        Promise.resolve(
+          [...tokens]
+            .reverse()
+            .find(
+              (token) =>
+                token.userId === where.userId &&
+                (where.consumedAt !== null || token.consumedAt === null) &&
+                (where.revokedAt !== null || token.revokedAt === null),
+            ) ?? null,
+        ),
+    ),
+    updateMany: jest.fn<Promise<{ count: number }>, [UpdateTokensArgs]>(
+      ({ where, data }) => {
         let count = 0;
         for (const token of tokens) {
           const matches =
@@ -112,110 +159,96 @@ function createPrismaFake() {
             count += 1;
           }
         }
-        return { count };
+        return Promise.resolve({ count });
       },
     ),
   });
 
-  let serializableTail = Promise.resolve();
-  const prisma = {
-    user: {
-      findUnique: jest.fn(
-        async ({
-          where,
-        }: {
-          where: { emailNormalized?: string; id?: number };
-        }) =>
+  const userDelegate: UserDelegateFake = {
+    findUnique: jest.fn<Promise<StoredUser | null>, [FindUserArgs]>(
+      ({ where }) =>
+        Promise.resolve(
           users.find(
             (user) =>
               (where.emailNormalized === undefined ||
                 user.emailNormalized === where.emailNormalized) &&
               (where.id === undefined || user.id === where.id),
           ) ?? null,
-      ),
-      create: jest.fn(
-        async ({
-          data,
-        }: {
-          data: Pick<StoredUser, 'email' | 'emailNormalized' | 'passwordHash'>;
-        }) => {
-          if (
-            users.some((user) => user.emailNormalized === data.emailNormalized)
-          ) {
-            throw Object.assign(new Error('unique constraint'), {
-              code: 'P2002',
-            });
-          }
-          const now = new Date();
-          const user: StoredUser = {
-            id: users.length + 1,
-            ...data,
-            displayName: null,
-            role: 'USER',
-            status: 'ACTIVE',
-            emailVerifiedAt: null,
-            disabledAt: null,
-            createdAt: now,
-            updatedAt: now,
-          };
-          users.push(user);
-          return user;
-        },
-      ),
-      update: jest.fn(
-        async ({
-          where,
-          data,
-        }: {
-          where: { id: number };
-          data: Partial<StoredUser>;
-        }) => {
-          const user = users.find((candidate) => candidate.id === where.id);
-          if (!user) {
-            throw new Error('user not found');
-          }
-          Object.assign(user, data);
-          return user;
-        },
-      ),
-    },
-    emailToken: tokenDelegate(emailTokens),
-    passwordResetToken: tokenDelegate(passwordResetTokens),
-    $transaction: jest.fn(
-      async (operation: unknown, options?: { isolationLevel?: string }) => {
-        if (typeof operation === 'function') {
-          const execute = () =>
-            operation(transactionClient) as Promise<unknown>;
-          if (options?.isolationLevel !== 'Serializable') {
-            return execute();
-          }
-
-          const previousTransaction = serializableTail;
-          let releaseTransaction: () => void = () => undefined;
-          serializableTail = new Promise<void>((resolve) => {
-            releaseTransaction = resolve;
-          });
-          await previousTransaction;
-          try {
-            return await execute();
-          } finally {
-            releaseTransaction();
-          }
+        ),
+    ),
+    create: jest.fn<Promise<StoredUser>, [CreateUserArgs]>(({ data }) => {
+      if (users.some((user) => user.emailNormalized === data.emailNormalized)) {
+        return Promise.reject(
+          Object.assign(new Error('unique constraint'), {
+            code: 'P2002',
+          }),
+        );
+      }
+      const now = new Date();
+      const user: StoredUser = {
+        id: users.length + 1,
+        ...data,
+        displayName: null,
+        role: 'USER',
+        status: 'ACTIVE',
+        emailVerifiedAt: null,
+        disabledAt: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      users.push(user);
+      return Promise.resolve(user);
+    }),
+    update: jest.fn<Promise<StoredUser>, [UpdateUserArgs]>(
+      ({ where, data }) => {
+        const user = users.find((candidate) => candidate.id === where.id);
+        if (!user) {
+          return Promise.reject(new Error('user not found'));
         }
-        return Promise.all(operation as Promise<unknown>[]);
+        Object.assign(user, data);
+        return Promise.resolve(user);
       },
     ),
   };
-  const rootFindFirst = prisma.emailToken.findFirst.getMockImplementation();
-  if (!rootFindFirst) {
-    throw new Error('emailToken.findFirst fake is required');
-  }
-  const transactionClient = {
-    ...prisma,
-    emailToken: {
-      ...prisma.emailToken,
-      findFirst: jest.fn(rootFindFirst),
-    },
+  const emailTokenDelegate = tokenDelegate(emailTokens);
+  const passwordResetTokenDelegate = tokenDelegate(passwordResetTokens);
+  const transactionEmailTokenDelegate: TokenDelegateFake = {
+    ...emailTokenDelegate,
+    findFirst: jest.fn<Promise<StoredToken | null>, [FindTokenArgs]>(
+      emailTokenDelegate.findFirst.getMockImplementation(),
+    ),
+  };
+  let serializableTail = Promise.resolve();
+  const transactionClient: TransactionClientFake = {
+    user: userDelegate,
+    emailToken: transactionEmailTokenDelegate,
+    passwordResetToken: passwordResetTokenDelegate,
+  };
+  const transaction: TransactionMock = jest.fn(async (operation, options) => {
+    if (typeof operation === 'function') {
+      const execute = () => operation(transactionClient);
+      if (options?.isolationLevel !== 'Serializable') {
+        return execute();
+      }
+
+      const previousTransaction = serializableTail;
+      let releaseTransaction: () => void = () => undefined;
+      serializableTail = new Promise<void>((resolve) => {
+        releaseTransaction = resolve;
+      });
+      await previousTransaction;
+      try {
+        return await execute();
+      } finally {
+        releaseTransaction();
+      }
+    }
+    return Promise.all(operation);
+  });
+  const prisma: PrismaFake = {
+    ...transactionClient,
+    emailToken: emailTokenDelegate,
+    $transaction: transaction,
   };
 
   return { prisma, users, emailTokens, passwordResetTokens };
@@ -223,9 +256,15 @@ function createPrismaFake() {
 
 function createFixture() {
   const database = createPrismaFake();
+  const sendVerification = jest
+    .fn<Promise<void>, [string, string]>()
+    .mockResolvedValue(undefined);
+  const sendPasswordReset = jest
+    .fn<Promise<void>, [string, string]>()
+    .mockResolvedValue(undefined);
   const mail = {
-    sendVerification: jest.fn().mockResolvedValue(undefined),
-    sendPasswordReset: jest.fn().mockResolvedValue(undefined),
+    sendVerification,
+    sendPasswordReset,
   };
   const service = new AccountsService(database.prisma as never, mail as never);
 
@@ -290,7 +329,7 @@ describe('AccountsService', () => {
     const { service, mail } = createFixture();
     const password = 'Correct-Horse-Battery-Staple-42';
     await service.register({ email: 'alice@example.com', password });
-    const rawToken = mail.sendVerification.mock.calls[0][1] as string;
+    const rawToken = mail.sendVerification.mock.calls[0][1];
     await service.verifyEmail(rawToken);
 
     await expect(
@@ -309,7 +348,7 @@ describe('AccountsService', () => {
       email: 'alice@example.com',
       password: 'Correct-Horse-Battery-Staple-42',
     });
-    const rawToken = mail.sendVerification.mock.calls[0][1] as string;
+    const rawToken = mail.sendVerification.mock.calls[0][1];
 
     expect(emailTokens).toHaveLength(1);
     expect(emailTokens[0].tokenHash).not.toBe(rawToken);
@@ -339,7 +378,7 @@ describe('AccountsService', () => {
       email: 'alice@example.com',
       password: 'Correct-Horse-Battery-Staple-42',
     });
-    const issuedToken = mail.sendVerification.mock.calls[0][1] as string;
+    const issuedToken = mail.sendVerification.mock.calls[0][1];
     if (expireToken) {
       emailTokens[0].expiresAt = new Date(Date.now() - 1);
     }
@@ -433,12 +472,14 @@ describe('AccountsService', () => {
       throw new Error('$transaction fake is required');
     }
     let conflicts = 0;
-    prisma.$transaction.mockImplementation(async (operation, options) => {
+    prisma.$transaction.mockImplementation((operation, options) => {
       if (options?.isolationLevel === 'Serializable' && conflicts === 0) {
         conflicts += 1;
-        throw Object.assign(new Error('serialization conflict'), {
-          code: 'P2034',
-        });
+        return Promise.reject(
+          Object.assign(new Error('serialization conflict'), {
+            code: 'P2034',
+          }),
+        );
       }
       return runTransaction(operation, options);
     });
@@ -496,7 +537,7 @@ describe('AccountsService', () => {
     expect(mail.sendPasswordReset).toHaveBeenCalledTimes(1);
     expect(passwordResetTokens).toHaveLength(1);
 
-    const rawToken = mail.sendPasswordReset.mock.calls[0][1] as string;
+    const rawToken = mail.sendPasswordReset.mock.calls[0][1];
     expect(passwordResetTokens[0].tokenHash).not.toBe(rawToken);
     expect(passwordResetTokens[0].expiresAt.getTime()).toBe(
       Date.now() + 60 * 60 * 1000,
@@ -512,11 +553,11 @@ describe('AccountsService', () => {
       email: 'alice@example.com',
       password,
     });
-    const verificationToken = mail.sendVerification.mock.calls[0][1] as string;
+    const verificationToken = mail.sendVerification.mock.calls[0][1];
     await service.verifyEmail(verificationToken);
     const recoveryResponse =
       await service.requestPasswordReset('alice@example.com');
-    const resetToken = mail.sendPasswordReset.mock.calls[0][1] as string;
+    const resetToken = mail.sendPasswordReset.mock.calls[0][1];
     const persistedSnapshot = JSON.stringify({
       users,
       emailTokens,
