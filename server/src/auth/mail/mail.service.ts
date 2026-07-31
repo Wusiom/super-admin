@@ -1,4 +1,9 @@
-import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnApplicationShutdown,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 export const MAIL_TRANSPORT = Symbol('MAIL_TRANSPORT');
@@ -19,7 +24,7 @@ export interface MailTransport {
 }
 
 @Injectable()
-export class MailService implements OnModuleDestroy {
+export class MailService implements OnApplicationShutdown {
   private readonly logger = new Logger(MailService.name);
   private readonly pendingDispatches = new Set<Promise<void>>();
 
@@ -59,39 +64,35 @@ export class MailService implements OnModuleDestroy {
   }
 
   dispatchVerificationTask(work: () => Promise<MailTaskPayload | null>): void {
-    this.dispatch('verification', async () => {
-      const payload = await work();
-      if (payload) {
-        await this.sendVerification(payload.email, payload.token);
-      }
-    });
+    this.dispatchTask('verification', work, (payload) =>
+      this.sendVerification(payload.email, payload.token),
+    );
   }
 
   dispatchPasswordResetTask(work: () => Promise<MailTaskPayload | null>): void {
-    this.dispatch('password_reset', async () => {
-      const payload = await work();
-      if (payload) {
-        await this.sendPasswordReset(payload.email, payload.token);
-      }
-    });
+    this.dispatchTask('password_reset', work, (payload) =>
+      this.sendPasswordReset(payload.email, payload.token),
+    );
   }
 
-  async onModuleDestroy(): Promise<void> {
-    const pending = [...this.pendingDispatches];
-    if (pending.length === 0) {
-      return;
-    }
-
+  async onApplicationShutdown(): Promise<void> {
     const timeoutMs = this.config.get<number>('MAIL_DRAIN_TIMEOUT_MS') ?? 8_000;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      Promise.allSettled(pending),
-      new Promise<void>((resolve) => {
-        timeout = setTimeout(resolve, timeoutMs);
-      }),
-    ]);
-    if (timeout) {
-      clearTimeout(timeout);
+    const deadline = Date.now() + timeoutMs;
+    while (this.pendingDispatches.size > 0) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        break;
+      }
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        Promise.allSettled([...this.pendingDispatches]),
+        new Promise<void>((resolve) => {
+          timeout = setTimeout(resolve, remainingMs);
+        }),
+      ]);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
     }
     if (this.pendingDispatches.size > 0) {
       this.logger.warn({
@@ -111,15 +112,48 @@ export class MailService implements OnModuleDestroy {
     const task = Promise.resolve()
       .then(send)
       .catch(() => {
-        this.logger.error({
-          event: 'mail_dispatch_failed',
-          kind,
-          errorCategory: 'transport_failure',
-        });
+        this.logDispatchFailure(kind, 'transport_failure');
       })
       .finally(() => {
         this.pendingDispatches.delete(task);
       });
     this.pendingDispatches.add(task);
+  }
+
+  private dispatchTask(
+    kind: string,
+    work: () => Promise<MailTaskPayload | null>,
+    send: (payload: MailTaskPayload) => Promise<void>,
+  ): void {
+    const task = Promise.resolve()
+      .then(async () => {
+        let payload: MailTaskPayload | null;
+        try {
+          payload = await work();
+        } catch {
+          this.logDispatchFailure(kind, 'token_issue_failure');
+          return;
+        }
+        if (!payload) {
+          return;
+        }
+        try {
+          await send(payload);
+        } catch {
+          this.logDispatchFailure(kind, 'transport_failure');
+        }
+      })
+      .finally(() => {
+        this.pendingDispatches.delete(task);
+      });
+    this.pendingDispatches.add(task);
+  }
+
+  private logDispatchFailure(kind: string, errorCategory: string): void {
+    this.logger.error({
+      event: 'mail_dispatch_failed',
+      kind,
+      errorCategory,
+    });
   }
 }

@@ -79,14 +79,54 @@ describe('MailService', () => {
     service.dispatchVerification('alice@example.com', 'token');
 
     let drainSettled = false;
-    void service.onModuleDestroy().then(() => {
+    void service.onApplicationShutdown().then(() => {
       drainSettled = true;
     });
     await Promise.resolve();
     expect(drainSettled).toBe(false);
 
-    await jest.advanceTimersByTimeAsync(1_000);
+    await jest.advanceTimersByTimeAsync(900);
+    service.dispatchPasswordReset('alice@example.com', 'second-token');
+    await jest.advanceTimersByTimeAsync(100);
     await Promise.resolve();
+    expect(drainSettled).toBe(true);
+  });
+
+  it('drain 开始后新增的任务也会在同一绝对截止时间内被等待', async () => {
+    let finishFirst: () => void = () => undefined;
+    const firstSend = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    let finishSecond: () => void = () => undefined;
+    const secondSend = new Promise<void>((resolve) => {
+      finishSecond = resolve;
+    });
+    const send = jest
+      .fn<Promise<void>, [MailMessage]>()
+      .mockReturnValueOnce(firstSend)
+      .mockReturnValueOnce(secondSend);
+    const config = {
+      getOrThrow: jest.fn().mockReturnValue('https://app.example.test'),
+      get: jest.fn().mockReturnValue(1_000),
+    };
+    const service = new MailService({ send }, config as never);
+    service.dispatchVerification('alice@example.com', 'first-token');
+    await Promise.resolve();
+    let drainSettled = false;
+    const drain = service.onApplicationShutdown().then(() => {
+      drainSettled = true;
+    });
+
+    service.dispatchPasswordReset('alice@example.com', 'second-token');
+    await Promise.resolve();
+    finishFirst();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(drainSettled).toBe(false);
+
+    finishSecond();
+    await drain;
+    expect(send).toHaveBeenCalledTimes(2);
     expect(drainSettled).toBe(true);
   });
 
@@ -112,7 +152,7 @@ describe('MailService', () => {
         token: 'verification-token',
       }),
     );
-    await service.onModuleDestroy();
+    await service.onApplicationShutdown();
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0][0].to).toBe('alice@example.com');
@@ -186,11 +226,12 @@ describe('MailService', () => {
     expect(
       service.dispatchVerification('alice@example.com', 'RAW_TOKEN_SENTINEL'),
     ).toBeUndefined();
-    await service.onModuleDestroy();
+    await service.onApplicationShutdown();
 
     const serializedLog = JSON.stringify(error.mock.calls);
     expect(serializedLog).toContain('mail_dispatch_failed');
     expect(serializedLog).toContain('verification');
+    expect(serializedLog).toContain('transport_failure');
     expect(serializedLog).not.toContain('alice@example.com');
     expect(serializedLog).not.toContain('RAW_TOKEN_SENTINEL');
     expect(serializedLog).not.toContain('SMTP_RESPONSE_SENTINEL');
@@ -211,12 +252,14 @@ describe('MailService', () => {
         new Error('DATABASE_SENTINEL alice@example.com RAW_TOKEN_SENTINEL'),
       ),
     );
-    await service.onModuleDestroy();
+    await service.onApplicationShutdown();
 
     expect(send).not.toHaveBeenCalled();
     const serializedLog = JSON.stringify(error.mock.calls);
     expect(serializedLog).toContain('mail_dispatch_failed');
     expect(serializedLog).toContain('password_reset');
+    expect(serializedLog).toContain('token_issue_failure');
+    expect(serializedLog).not.toContain('transport_failure');
     expect(serializedLog).not.toContain('DATABASE_SENTINEL');
     expect(serializedLog).not.toContain('alice@example.com');
     expect(serializedLog).not.toContain('RAW_TOKEN_SENTINEL');
