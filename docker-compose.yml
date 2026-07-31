@@ -121,6 +121,8 @@ services:
       SMTP_PORT: ${SMTP_PORT:-1025}
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_FROM: ${SMTP_FROM:-noreply@example.test}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost}
     healthcheck:
       test:

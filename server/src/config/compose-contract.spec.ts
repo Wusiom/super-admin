@@ -227,6 +227,8 @@ describe('Docker Compose 契约', () => {
       'utf8',
     );
     expect(exampleEnvironment).toMatch(/^SMTP_HOST=mailpit$/m);
+    expect(exampleEnvironment).toMatch(/^SMTP_USER=$/m);
+    expect(exampleEnvironment).toMatch(/^SMTP_PASSWORD=$/m);
   });
 
   it('SMTP 配置可由环境覆盖，生产覆盖禁用 Mailpit 强依赖', () => {
@@ -235,6 +237,8 @@ describe('Docker Compose 契约', () => {
       SMTP_PORT: '${SMTP_PORT:-1025}',
       SMTP_SECURE: '${SMTP_SECURE:-false}',
       SMTP_FROM: '${SMTP_FROM:-noreply@example.test}',
+      SMTP_USER: '${SMTP_USER:-}',
+      SMTP_PASSWORD: '${SMTP_PASSWORD:-}',
     });
 
     const productionPath = resolve(
@@ -257,6 +261,8 @@ describe('Docker Compose 契约', () => {
       SMTP_PORT: '${SMTP_PORT:?生产环境必须设置 SMTP_PORT}',
       SMTP_SECURE: '${SMTP_SECURE:?生产环境必须设置 SMTP_SECURE}',
       SMTP_FROM: '${SMTP_FROM:?生产环境必须设置 SMTP_FROM}',
+      SMTP_USER: '${SMTP_USER:-}',
+      SMTP_PASSWORD: '${SMTP_PASSWORD:-}',
     });
   });
 
@@ -302,25 +308,25 @@ describe('Docker Compose 契约', () => {
         'docker-compose.test.yml',
         'postgres',
       );
-      expect(postgresSource).toMatch(/^    volumes: !reset \[\]$/m);
-      expect(postgresSource).toMatch(/^    ports: !override$/m);
+      expect(postgresSource).toMatch(/^ {4}volumes: !reset \[\]$/m);
+      expect(postgresSource).toMatch(/^ {4}ports: !override$/m);
 
       for (const serviceName of ['redis', 'minio']) {
         const serviceSource = readServiceSource(
           'docker-compose.test.yml',
           serviceName,
         );
-        expect(serviceSource).toMatch(/^    volumes: !reset \[\]$/m);
-        expect(serviceSource).toMatch(/^    ports: !reset \[\]$/m);
+        expect(serviceSource).toMatch(/^ {4}volumes: !reset \[\]$/m);
+        expect(serviceSource).toMatch(/^ {4}ports: !reset \[\]$/m);
       }
 
       for (const serviceName of ['mailpit', 'server']) {
         expect(
           readServiceSource('docker-compose.test.yml', serviceName),
-        ).toMatch(/^    ports: !reset \[\]$/m);
+        ).toMatch(/^ {4}ports: !reset \[\]$/m);
       }
       expect(readServiceSource('docker-compose.test.yml', 'client')).toMatch(
-        /^    ports: !override$/m,
+        /^ {4}ports: !override$/m,
       );
     });
 

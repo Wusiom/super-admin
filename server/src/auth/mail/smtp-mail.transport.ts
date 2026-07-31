@@ -12,6 +12,10 @@ type NodemailerModule = {
     host: string;
     port: number;
     secure: boolean;
+    auth?: {
+      user: string;
+      pass: string;
+    };
   }): SmtpTransporter;
 };
 
@@ -23,11 +27,17 @@ export class SmtpMailTransport implements MailTransport {
   private readonly from: string;
 
   constructor(config: ConfigService) {
-    this.transporter = typedNodemailer.createTransport({
+    const user = config.get<string>('SMTP_USER');
+    const password = config.get<string>('SMTP_PASSWORD');
+    const options: Parameters<NodemailerModule['createTransport']>[0] = {
       host: config.getOrThrow<string>('SMTP_HOST'),
       port: config.getOrThrow<number>('SMTP_PORT'),
       secure: config.getOrThrow<boolean>('SMTP_SECURE'),
-    });
+    };
+    if (user && password) {
+      options.auth = { user, pass: password };
+    }
+    this.transporter = typedNodemailer.createTransport(options);
     this.from = config.getOrThrow<string>('SMTP_FROM');
   }
 

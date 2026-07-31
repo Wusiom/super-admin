@@ -2,6 +2,16 @@ import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { AccountsService } from './accounts.service';
 
+jest.mock('argon2', () => {
+  const actual = jest.requireActual<typeof import('argon2')>('argon2');
+  return {
+    ...actual,
+    verify: jest.fn((digest: string, password: string) =>
+      actual.verify(digest, password),
+    ),
+  };
+});
+
 type StoredUser = {
   id: number;
   email: string;
@@ -103,8 +113,25 @@ function createPrismaFake() {
   const users: StoredUser[] = [];
   const emailTokens: StoredToken[] = [];
   const passwordResetTokens: StoredToken[] = [];
+  const transactionHooks = {
+    beforeUserFindUnique: jest.fn<Promise<void>, [FindUserArgs]>(() =>
+      Promise.resolve(),
+    ),
+    beforeEmailTokenFindFirst: jest.fn<Promise<void>, [FindTokenArgs]>(() =>
+      Promise.resolve(),
+    ),
+    beforePasswordResetTokenFindFirst: jest.fn<Promise<void>, [FindTokenArgs]>(
+      () => Promise.resolve(),
+    ),
+  };
 
-  const tokenDelegate = (tokens: StoredToken[]): TokenDelegateFake => ({
+  const tokenDelegate = (
+    tokens: StoredToken[],
+    visibleUsers: StoredUser[],
+    onMutation: () => void = () => undefined,
+    beforeFindFirst: (args: FindTokenArgs) => Promise<void> = () =>
+      Promise.resolve(),
+  ): TokenDelegateFake => ({
     create: jest.fn<Promise<StoredToken>, [CreateTokenArgs]>(({ data }) => {
       const token: StoredToken = {
         id: tokens.length + 1,
@@ -114,6 +141,7 @@ function createPrismaFake() {
         createdAt: new Date(),
       };
       tokens.push(token);
+      onMutation();
       return Promise.resolve(token);
     }),
     findUnique: jest.fn<Promise<TokenWithUser | null>, [FindUniqueTokenArgs]>(
@@ -127,13 +155,15 @@ function createPrismaFake() {
 
         return Promise.resolve({
           ...token,
-          user: users.find((user) => user.id === token.userId),
+          user: visibleUsers.find((user) => user.id === token.userId),
         });
       },
     ),
     findFirst: jest.fn<Promise<StoredToken | null>, [FindTokenArgs]>(
-      ({ where }) =>
-        Promise.resolve(
+      async (args) => {
+        await beforeFindFirst(args);
+        const { where } = args;
+        return (
           [...tokens]
             .reverse()
             .find(
@@ -141,8 +171,9 @@ function createPrismaFake() {
                 token.userId === where.userId &&
                 (where.consumedAt !== null || token.consumedAt === null) &&
                 (where.revokedAt !== null || token.revokedAt === null),
-            ) ?? null,
-        ),
+            ) ?? null
+        );
+      },
     ),
     updateMany: jest.fn<Promise<{ count: number }>, [UpdateTokensArgs]>(
       ({ where, data }) => {
@@ -156,6 +187,7 @@ function createPrismaFake() {
             (!where.expiresAt || token.expiresAt > where.expiresAt.gt);
           if (matches) {
             Object.assign(token, data);
+            onMutation();
             count += 1;
           }
         }
@@ -164,20 +196,32 @@ function createPrismaFake() {
     ),
   });
 
-  const userDelegate: UserDelegateFake = {
+  const createUserDelegate = (
+    visibleUsers: StoredUser[],
+    onMutation: () => void = () => undefined,
+    beforeFindUnique: (args: FindUserArgs) => Promise<void> = () =>
+      Promise.resolve(),
+  ): UserDelegateFake => ({
     findUnique: jest.fn<Promise<StoredUser | null>, [FindUserArgs]>(
-      ({ where }) =>
-        Promise.resolve(
-          users.find(
+      async (args) => {
+        await beforeFindUnique(args);
+        const { where } = args;
+        return (
+          visibleUsers.find(
             (user) =>
               (where.emailNormalized === undefined ||
                 user.emailNormalized === where.emailNormalized) &&
               (where.id === undefined || user.id === where.id),
-          ) ?? null,
-        ),
+          ) ?? null
+        );
+      },
     ),
     create: jest.fn<Promise<StoredUser>, [CreateUserArgs]>(({ data }) => {
-      if (users.some((user) => user.emailNormalized === data.emailNormalized)) {
+      if (
+        visibleUsers.some(
+          (user) => user.emailNormalized === data.emailNormalized,
+        )
+      ) {
         return Promise.reject(
           Object.assign(new Error('unique constraint'), {
             code: 'P2002',
@@ -186,7 +230,7 @@ function createPrismaFake() {
       }
       const now = new Date();
       const user: StoredUser = {
-        id: users.length + 1,
+        id: visibleUsers.length + 1,
         ...data,
         displayName: null,
         role: 'USER',
@@ -196,62 +240,115 @@ function createPrismaFake() {
         createdAt: now,
         updatedAt: now,
       };
-      users.push(user);
+      visibleUsers.push(user);
+      onMutation();
       return Promise.resolve(user);
     }),
     update: jest.fn<Promise<StoredUser>, [UpdateUserArgs]>(
       ({ where, data }) => {
-        const user = users.find((candidate) => candidate.id === where.id);
+        const user = visibleUsers.find(
+          (candidate) => candidate.id === where.id,
+        );
         if (!user) {
           return Promise.reject(new Error('user not found'));
         }
         Object.assign(user, data);
+        onMutation();
         return Promise.resolve(user);
       },
     ),
-  };
-  const emailTokenDelegate = tokenDelegate(emailTokens);
-  const passwordResetTokenDelegate = tokenDelegate(passwordResetTokens);
-  const transactionEmailTokenDelegate: TokenDelegateFake = {
-    ...emailTokenDelegate,
-    findFirst: jest.fn<Promise<StoredToken | null>, [FindTokenArgs]>(
-      emailTokenDelegate.findFirst.getMockImplementation(),
-    ),
-  };
-  let serializableTail = Promise.resolve();
+  });
+
+  const userDelegate = createUserDelegate(users);
+  const emailTokenDelegate = tokenDelegate(emailTokens, users);
+  const passwordResetTokenDelegate = tokenDelegate(passwordResetTokens, users);
   const transactionClient: TransactionClientFake = {
-    user: userDelegate,
-    emailToken: transactionEmailTokenDelegate,
+    user: createUserDelegate(
+      users,
+      () => undefined,
+      transactionHooks.beforeUserFindUnique,
+    ),
+    emailToken: tokenDelegate(
+      emailTokens,
+      users,
+      () => undefined,
+      transactionHooks.beforeEmailTokenFindFirst,
+    ),
     passwordResetToken: passwordResetTokenDelegate,
   };
+  let databaseVersion = 0;
   const transaction: TransactionMock = jest.fn(async (operation, options) => {
     if (typeof operation === 'function') {
-      const execute = () => operation(transactionClient);
       if (options?.isolationLevel !== 'Serializable') {
-        return execute();
+        const result = await operation(transactionClient);
+        databaseVersion += 1;
+        return result;
       }
 
-      const previousTransaction = serializableTail;
-      let releaseTransaction: () => void = () => undefined;
-      serializableTail = new Promise<void>((resolve) => {
-        releaseTransaction = resolve;
-      });
-      await previousTransaction;
-      try {
-        return await execute();
-      } finally {
-        releaseTransaction();
+      const startVersion = databaseVersion;
+      const localUsers = users.map((user) => ({ ...user }));
+      const localEmailTokens = emailTokens.map((token) => ({ ...token }));
+      const localPasswordResetTokens = passwordResetTokens.map((token) => ({
+        ...token,
+      }));
+      let mutated = false;
+      const markMutated = () => {
+        mutated = true;
+      };
+      const isolatedClient: TransactionClientFake = {
+        user: createUserDelegate(
+          localUsers,
+          markMutated,
+          transactionHooks.beforeUserFindUnique,
+        ),
+        emailToken: tokenDelegate(
+          localEmailTokens,
+          localUsers,
+          markMutated,
+          transactionHooks.beforeEmailTokenFindFirst,
+        ),
+        passwordResetToken: tokenDelegate(
+          localPasswordResetTokens,
+          localUsers,
+          markMutated,
+          transactionHooks.beforePasswordResetTokenFindFirst,
+        ),
+      };
+      const result = await operation(isolatedClient);
+      if (mutated && startVersion !== databaseVersion) {
+        throw Object.assign(new Error('serialization conflict'), {
+          code: 'P2034',
+        });
       }
+      if (mutated) {
+        users.splice(0, users.length, ...localUsers);
+        emailTokens.splice(0, emailTokens.length, ...localEmailTokens);
+        passwordResetTokens.splice(
+          0,
+          passwordResetTokens.length,
+          ...localPasswordResetTokens,
+        );
+        databaseVersion += 1;
+      }
+      return result;
     }
     return Promise.all(operation);
   });
   const prisma: PrismaFake = {
     ...transactionClient,
+    user: userDelegate,
     emailToken: emailTokenDelegate,
     $transaction: transaction,
   };
 
-  return { prisma, users, emailTokens, passwordResetTokens };
+  return {
+    prisma,
+    transactionClient,
+    transactionHooks,
+    users,
+    emailTokens,
+    passwordResetTokens,
+  };
 }
 
 function createFixture() {
@@ -262,9 +359,21 @@ function createFixture() {
   const sendPasswordReset = jest
     .fn<Promise<void>, [string, string]>()
     .mockResolvedValue(undefined);
+  const dispatchVerification = jest.fn<void, [string, string]>(
+    (email, token) => {
+      void sendVerification(email, token).catch(() => undefined);
+    },
+  );
+  const dispatchPasswordReset = jest.fn<void, [string, string]>(
+    (email, token) => {
+      void sendPasswordReset(email, token).catch(() => undefined);
+    },
+  );
   const mail = {
     sendVerification,
     sendPasswordReset,
+    dispatchVerification,
+    dispatchPasswordReset,
   };
   const service = new AccountsService(database.prisma as never, mail as never);
 
@@ -315,6 +424,25 @@ describe('AccountsService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('注册事务提交后邮件失败仍返回成功且保留可重发账户', async () => {
+    const { service, mail, users, emailTokens } = createFixture();
+    mail.sendVerification.mockRejectedValueOnce(
+      new Error('SMTP_RESPONSE_SENTINEL'),
+    );
+
+    await expect(
+      service.register({
+        email: 'alice@example.com',
+        password: 'Correct-Horse-Battery-Staple-42',
+      }),
+    ).resolves.toEqual({
+      message: '注册成功，请检查邮箱完成验证。',
+    });
+    expect(users).toHaveLength(1);
+    expect(emailTokens).toHaveLength(1);
+    expect(mail.dispatchVerification).toHaveBeenCalledTimes(1);
+  });
+
   it('邮箱验证前即使密码正确也拒绝认证', async () => {
     const { service } = createFixture();
     const password = 'Correct-Horse-Battery-Staple-42';
@@ -323,6 +451,34 @@ describe('AccountsService', () => {
     await expect(
       service.authenticate('alice@example.com', password),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('存在与不存在账户都执行一次真实 Argon2id 验证并返回统一 Unauthorized', async () => {
+    const { service } = createFixture();
+    const password = 'Submitted-Password-Sentinel-42';
+    await service.register({
+      email: 'alice@example.com',
+      password: 'Stored-Password-Sentinel-84',
+    });
+    const verify = jest.mocked(argon2.verify);
+    verify.mockClear();
+
+    await expect(
+      service.authenticate('alice@example.com', password),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(
+      service.authenticate('unknown@example.com', password),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(verify).toHaveBeenCalledTimes(2);
+    expect(verify.mock.calls.map(([digest]) => digest)).toEqual([
+      expect.stringMatching(/^\$argon2id\$/u),
+      expect.stringMatching(/^\$argon2id\$/u),
+    ]);
+    expect(verify.mock.calls.map(([, submitted]) => submitted)).toEqual([
+      password,
+      password,
+    ]);
   });
 
   it('验证成功后允许使用正确密码认证且不返回密码哈希', async () => {
@@ -417,31 +573,63 @@ describe('AccountsService', () => {
     );
   });
 
-  it('两个并发重发请求在边界到达时只签发并发送一个新令牌', async () => {
-    const { service, mail, prisma, emailTokens } = createFixture();
+  it('重发公开响应不等待 SMTP Promise 完成', async () => {
+    const { service, mail } = createFixture();
     await service.register({
       email: 'alice@example.com',
       password: 'Correct-Horse-Battery-Staple-42',
     });
     jest.advanceTimersByTime(60_000);
 
-    const readLatestToken = prisma.emailToken.findFirst.getMockImplementation();
-    if (!readLatestToken) {
-      throw new Error('emailToken.findFirst fake is required');
-    }
+    let markSendStarted: () => void = () => undefined;
+    const sendStarted = new Promise<void>((resolve) => {
+      markSendStarted = resolve;
+    });
+    let finishSend: () => void = () => undefined;
+    const delayedSend = new Promise<void>((resolve) => {
+      finishSend = resolve;
+    });
+    mail.sendVerification.mockImplementationOnce(() => {
+      markSendStarted();
+      return delayedSend;
+    });
+    let responseSettled = false;
+    const response = service
+      .resendVerification('alice@example.com')
+      .then((value) => {
+        responseSettled = true;
+        return value;
+      });
+
+    await sendStarted;
+    await Promise.resolve();
+    await Promise.resolve();
+    const settledBeforeSmtp = responseSettled;
+    finishSend();
+    await response;
+
+    expect(settledBeforeSmtp).toBe(true);
+  });
+
+  it('两个并发重发请求在边界到达时只签发并发送一个新令牌', async () => {
+    const { service, mail, transactionHooks, emailTokens } = createFixture();
+    await service.register({
+      email: 'alice@example.com',
+      password: 'Correct-Horse-Battery-Staple-42',
+    });
+    jest.advanceTimersByTime(60_000);
+
     let concurrentReads = 0;
     let releaseReads: () => void = () => undefined;
     const bothReadsStarted = new Promise<void>((resolve) => {
       releaseReads = resolve;
     });
-    prisma.emailToken.findFirst.mockImplementation(async (args) => {
-      const snapshot = await readLatestToken(args);
+    transactionHooks.beforeEmailTokenFindFirst.mockImplementation(async () => {
       concurrentReads += 1;
       if (concurrentReads === 2) {
         releaseReads();
       }
       await bothReadsStarted;
-      return snapshot;
     });
 
     const responses = await Promise.all([
@@ -457,6 +645,49 @@ describe('AccountsService', () => {
       ),
     ).toHaveLength(1);
     expect(mail.sendVerification).toHaveBeenCalledTimes(2);
+  });
+
+  it('邮箱验证与重发竞争时，验证成功后不再签发或派发新令牌', async () => {
+    const { service, mail, transactionHooks, users, emailTokens } =
+      createFixture();
+    await service.register({
+      email: 'alice@example.com',
+      password: 'Correct-Horse-Battery-Staple-42',
+    });
+    const verificationToken = mail.sendVerification.mock.calls[0][1];
+    mail.dispatchVerification.mockClear();
+    jest.advanceTimersByTime(60_000);
+
+    let markTransactionReadStarted: () => void = () => undefined;
+    const transactionReadStarted = new Promise<void>((resolve) => {
+      markTransactionReadStarted = resolve;
+    });
+    let releaseTransactionRead: () => void = () => undefined;
+    const transactionReadReleased = new Promise<void>((resolve) => {
+      releaseTransactionRead = resolve;
+    });
+    let readPaused = false;
+    const pauseBeforeRead = async (): Promise<void> => {
+      if (!readPaused) {
+        readPaused = true;
+        markTransactionReadStarted();
+        await transactionReadReleased;
+      }
+    };
+    transactionHooks.beforeUserFindUnique.mockImplementation(pauseBeforeRead);
+
+    const resend = service.resendVerification('alice@example.com');
+    await transactionReadStarted;
+    await service.verifyEmail(verificationToken);
+    releaseTransactionRead();
+    await resend;
+
+    expect(emailTokens).toHaveLength(1);
+    expect(emailTokens[0].consumedAt).toEqual(new Date());
+    expect(transactionHooks.beforeUserFindUnique).toHaveBeenCalledWith({
+      where: { id: users[0]?.id },
+    });
+    expect(mail.dispatchVerification).not.toHaveBeenCalled();
   });
 
   it('Serializable 事务遇到一次 P2034 后重试并只发送实际签发的令牌', async () => {
@@ -543,6 +774,128 @@ describe('AccountsService', () => {
       Date.now() + 60 * 60 * 1000,
     );
     expect(JSON.stringify(verifiedResponse)).not.toContain(rawToken);
+  });
+
+  it('找回公开响应不等待 SMTP 失败且保持通用响应', async () => {
+    const { service, mail, users } = createFixture();
+    await service.register({
+      email: 'alice@example.com',
+      password: 'Correct-Horse-Battery-Staple-42',
+    });
+    users[0].emailVerifiedAt = new Date();
+
+    let markSendStarted: () => void = () => undefined;
+    const sendStarted = new Promise<void>((resolve) => {
+      markSendStarted = resolve;
+    });
+    let failSend: () => void = () => undefined;
+    const delayedFailure = new Promise<void>((_resolve, reject) => {
+      failSend = () => reject(new Error('SMTP failure'));
+    });
+    mail.sendPasswordReset.mockImplementationOnce(() => {
+      markSendStarted();
+      return delayedFailure;
+    });
+    let responseSettled = false;
+    const response = service
+      .requestPasswordReset('alice@example.com')
+      .then((value) => {
+        responseSettled = true;
+        return value;
+      });
+
+    await sendStarted;
+    await Promise.resolve();
+    await Promise.resolve();
+    const settledBeforeSmtpFailure = responseSettled;
+    failSend();
+    const publicResponse = await response;
+    const unknownResponse = await service.requestPasswordReset(
+      'unknown@example.com',
+    );
+
+    expect(settledBeforeSmtpFailure).toBe(true);
+    expect(publicResponse).toEqual(unknownResponse);
+  });
+
+  it('两个并发找回请求最多签发一个活动令牌并派发一次邮件', async () => {
+    const { service, mail, users, passwordResetTokens } = createFixture();
+    await service.register({
+      email: 'alice@example.com',
+      password: 'Correct-Horse-Battery-Staple-42',
+    });
+    users[0].emailVerifiedAt = new Date();
+
+    const responses = await Promise.all([
+      service.requestPasswordReset('alice@example.com'),
+      service.requestPasswordReset(' ALICE@EXAMPLE.COM '),
+    ]);
+
+    expect(responses[0]).toEqual(responses[1]);
+    expect(passwordResetTokens).toHaveLength(1);
+    expect(
+      passwordResetTokens.filter(
+        (token) => token.consumedAt === null && token.revokedAt === null,
+      ),
+    ).toHaveLength(1);
+    expect(mail.dispatchPasswordReset).toHaveBeenCalledTimes(1);
+  });
+
+  it('密码找回 Serializable 事务遇到一次 P2034 后重试并只派发实际签发的令牌', async () => {
+    const { service, mail, prisma, users, passwordResetTokens } =
+      createFixture();
+    await service.register({
+      email: 'alice@example.com',
+      password: 'Correct-Horse-Battery-Staple-42',
+    });
+    users[0].emailVerifiedAt = new Date();
+    const runTransaction = prisma.$transaction.getMockImplementation();
+    if (!runTransaction) {
+      throw new Error('$transaction fake is required');
+    }
+    let conflicts = 0;
+    prisma.$transaction.mockImplementation((operation, options) => {
+      if (options?.isolationLevel === 'Serializable' && conflicts === 0) {
+        conflicts += 1;
+        return Promise.reject(
+          Object.assign(new Error('serialization conflict'), {
+            code: 'P2034',
+          }),
+        );
+      }
+      return runTransaction(operation, options);
+    });
+
+    await service.requestPasswordReset('alice@example.com');
+
+    expect(conflicts).toBe(1);
+    expect(passwordResetTokens).toHaveLength(1);
+    expect(mail.dispatchPasswordReset).toHaveBeenCalledTimes(1);
+  });
+
+  it('密码找回持续 P2034 时有限重试、返回通用响应且不派发邮件', async () => {
+    const { service, mail, prisma, users, passwordResetTokens } =
+      createFixture();
+    await service.register({
+      email: 'alice@example.com',
+      password: 'Correct-Horse-Battery-Staple-42',
+    });
+    users[0].emailVerifiedAt = new Date();
+    prisma.$transaction.mockClear();
+    prisma.$transaction.mockRejectedValue(
+      Object.assign(new Error('serialization conflict'), { code: 'P2034' }),
+    );
+
+    const unknownResponse = await service.requestPasswordReset(
+      'unknown@example.com',
+    );
+    await expect(
+      service.requestPasswordReset('alice@example.com'),
+    ).resolves.toEqual(unknownResponse);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+    expect(passwordResetTokens).toHaveLength(0);
+    expect(mail.dispatchPasswordReset).not.toHaveBeenCalled();
   });
 
   it('持久化快照和账户响应都不包含密码或原始邮件令牌', async () => {

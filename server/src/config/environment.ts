@@ -36,6 +36,11 @@ const secretStringSchema = (minimumLength: number, lengthMessage: string) =>
       message: '不能包含首尾空白',
     });
 
+const optionalSecretStringSchema = z.preprocess(
+  (value) => (value === '' ? undefined : value),
+  secretStringSchema(1, '不能为空').optional(),
+);
+
 const databaseUrlSchema = z
   .string()
   .min(1, '不能为空')
@@ -113,24 +118,43 @@ const objectStorageBucketSchema = z
     message: '不能使用 IPv4 地址格式',
   });
 
-export const environmentSchema = z.object({
-  DATABASE_URL: databaseUrlSchema,
-  JWT_ACCESS_SECRET: secretStringSchema(32, '长度不能少于 32 个字符'),
-  TOKEN_ENCRYPTION_KEY: z
-    .string()
-    .regex(/^[0-9a-fA-F]{64}$/, '必须是 64 位十六进制字符串（32 字节）'),
-  REDIS_HOST: z.string().trim().min(1, '不能为空'),
-  REDIS_PORT: portSchema,
-  OBJECT_STORAGE_ENDPOINT: httpUrlSchema,
-  OBJECT_STORAGE_BUCKET: objectStorageBucketSchema,
-  OBJECT_STORAGE_ACCESS_KEY: secretStringSchema(1, '不能为空'),
-  OBJECT_STORAGE_SECRET_KEY: secretStringSchema(1, '不能为空'),
-  SMTP_HOST: z.string().trim().min(1, '不能为空'),
-  SMTP_PORT: portSchema,
-  SMTP_SECURE: booleanSchema,
-  SMTP_FROM: z.string().email('必须是合法邮箱地址'),
-  APP_PUBLIC_URL: httpUrlSchema,
-});
+export const environmentSchema = z
+  .object({
+    DATABASE_URL: databaseUrlSchema,
+    JWT_ACCESS_SECRET: secretStringSchema(32, '长度不能少于 32 个字符'),
+    TOKEN_ENCRYPTION_KEY: z
+      .string()
+      .regex(/^[0-9a-fA-F]{64}$/, '必须是 64 位十六进制字符串（32 字节）'),
+    REDIS_HOST: z.string().trim().min(1, '不能为空'),
+    REDIS_PORT: portSchema,
+    OBJECT_STORAGE_ENDPOINT: httpUrlSchema,
+    OBJECT_STORAGE_BUCKET: objectStorageBucketSchema,
+    OBJECT_STORAGE_ACCESS_KEY: secretStringSchema(1, '不能为空'),
+    OBJECT_STORAGE_SECRET_KEY: secretStringSchema(1, '不能为空'),
+    SMTP_HOST: z.string().trim().min(1, '不能为空'),
+    SMTP_PORT: portSchema,
+    SMTP_SECURE: booleanSchema,
+    SMTP_FROM: z.string().email('必须是合法邮箱地址'),
+    SMTP_USER: optionalSecretStringSchema,
+    SMTP_PASSWORD: optionalSecretStringSchema,
+    APP_PUBLIC_URL: httpUrlSchema,
+  })
+  .superRefine((environment, context) => {
+    if (environment.SMTP_USER && !environment.SMTP_PASSWORD) {
+      context.addIssue({
+        code: 'custom',
+        path: ['SMTP_PASSWORD'],
+        message: '必须与 SMTP_USER 成对配置',
+      });
+    }
+    if (environment.SMTP_PASSWORD && !environment.SMTP_USER) {
+      context.addIssue({
+        code: 'custom',
+        path: ['SMTP_USER'],
+        message: '必须与 SMTP_PASSWORD 成对配置',
+      });
+    }
+  });
 
 export type Environment = z.infer<typeof environmentSchema>;
 

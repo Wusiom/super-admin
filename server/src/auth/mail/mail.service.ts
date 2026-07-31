@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 export const MAIL_TRANSPORT = Symbol('MAIL_TRANSPORT');
@@ -14,7 +14,10 @@ export interface MailTransport {
 }
 
 @Injectable()
-export class MailService {
+export class MailService implements OnModuleDestroy {
+  private readonly logger = new Logger(MailService.name);
+  private readonly pendingDispatches = new Set<Promise<void>>();
+
   constructor(
     @Inject(MAIL_TRANSPORT) private readonly transport: MailTransport,
     private readonly config: ConfigService,
@@ -42,9 +45,37 @@ export class MailService {
     });
   }
 
+  dispatchVerification(email: string, token: string): void {
+    this.dispatch('verification', () => this.sendVerification(email, token));
+  }
+
+  dispatchPasswordReset(email: string, token: string): void {
+    this.dispatch('password_reset', () => this.sendPasswordReset(email, token));
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await Promise.all(this.pendingDispatches);
+  }
+
   private createLink(path: string, token: string): string {
     const publicUrl = this.config.getOrThrow<string>('APP_PUBLIC_URL');
     const url = new URL(path, publicUrl);
     return `${url.toString()}?token=${encodeURIComponent(token)}`;
+  }
+
+  private dispatch(kind: string, send: () => Promise<void>): void {
+    const task = Promise.resolve()
+      .then(send)
+      .catch(() => {
+        this.logger.error({
+          event: 'mail_dispatch_failed',
+          kind,
+          errorCategory: 'transport_failure',
+        });
+      })
+      .finally(() => {
+        this.pendingDispatches.delete(task);
+      });
+    this.pendingDispatches.add(task);
   }
 }

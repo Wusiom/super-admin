@@ -79,6 +79,51 @@ describe('validateEnvironment', () => {
     });
   });
 
+  it('显式允许本地 Mailpit 不配置 SMTP 认证', () => {
+    const environment = validateEnvironment(validEnvironment);
+
+    expect(environment.SMTP_USER).toBeUndefined();
+    expect(environment.SMTP_PASSWORD).toBeUndefined();
+  });
+
+  it('接受成对的 SMTP 用户名和密码', () => {
+    const environment = validateEnvironment({
+      ...validEnvironment,
+      SMTP_USER: 'smtp-user',
+      SMTP_PASSWORD: 'smtp-password',
+    });
+
+    expect(environment).toMatchObject({
+      SMTP_USER: 'smtp-user',
+      SMTP_PASSWORD: 'smtp-password',
+    });
+  });
+
+  it.each([
+    ['只有用户名', { SMTP_USER: 'smtp-user' }, 'SMTP_PASSWORD', 'smtp-user'],
+    [
+      '只有密码',
+      { SMTP_PASSWORD: 'SMTP_PASSWORD_SENTINEL_9f21' },
+      'SMTP_USER',
+      'SMTP_PASSWORD_SENTINEL_9f21',
+    ],
+  ])(
+    '拒绝%s的 SMTP 认证配置且不泄露凭据',
+    (_name, credentials, missingField, sentinel) => {
+      let capturedError: unknown;
+      try {
+        validateEnvironment({ ...validEnvironment, ...credentials });
+      } catch (error) {
+        capturedError = error;
+      }
+
+      expect(capturedError).toBeInstanceOf(Error);
+      const message = (capturedError as Error).message;
+      expect(message).toContain(missingField);
+      expect(message).not.toContain(sentinel);
+    },
+  );
+
   it.each([
     'postgresql://postgres:postgres@localhost:5432/learning_assistant',
     'postgres://postgres:postgres@localhost:5432/learning_assistant',

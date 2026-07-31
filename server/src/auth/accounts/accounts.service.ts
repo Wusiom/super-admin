@@ -17,7 +17,10 @@ import { RegisterDto } from './dto/register.dto';
 const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 const VERIFICATION_RESEND_INTERVAL_MS = 60 * 1000;
+const PASSWORD_RESET_REQUEST_INTERVAL_MS = 60 * 1000;
 const SERIALIZABLE_TRANSACTION_MAX_ATTEMPTS = 3;
+const DUMMY_PASSWORD_HASH =
+  '$argon2id$v=19$m=65536,p=4,t=3$RpjWxpSqVcFZRZ9lypF1sQ$4LXCClwCPSHZ5taeZbSCFuVInt07Ocr8ni1EkiTYZFk';
 
 const REGISTRATION_RESPONSE = {
   message: '注册成功，请检查邮箱完成验证。',
@@ -91,7 +94,7 @@ export class AccountsService {
       throw error;
     }
 
-    await this.mail.sendVerification(user.email, rawToken);
+    this.mail.dispatchVerification(user.email, rawToken);
     return { ...REGISTRATION_RESPONSE };
   }
 
@@ -102,9 +105,10 @@ export class AccountsService {
     const user = await this.prisma.user.findUnique({
       where: { emailNormalized: this.normalizeEmail(email) },
     });
-    const passwordMatches = user
-      ? await verifyPassword(user.passwordHash, password)
-      : false;
+    const passwordMatches = await verifyPassword(
+      user?.passwordHash ?? DUMMY_PASSWORD_HASH,
+      password,
+    );
 
     if (
       !user ||
@@ -177,9 +181,7 @@ export class AccountsService {
       now,
     );
     if (issued) {
-      await this.sendWithoutExposingFailure(() =>
-        this.mail.sendVerification(user.email, rawToken),
-      );
+      this.mail.dispatchVerification(user.email, rawToken);
     }
 
     return { ...VERIFICATION_RESEND_RESPONSE };
@@ -195,26 +197,14 @@ export class AccountsService {
 
     const rawToken = this.createRawToken();
     const now = new Date();
-    await this.prisma.$transaction(async (transaction) => {
-      await transaction.passwordResetToken.updateMany({
-        where: {
-          userId: user.id,
-          consumedAt: null,
-          revokedAt: null,
-        },
-        data: { revokedAt: now },
-      });
-      await transaction.passwordResetToken.create({
-        data: {
-          userId: user.id,
-          tokenHash: this.hashToken(rawToken),
-          expiresAt: new Date(now.getTime() + PASSWORD_RESET_TOKEN_TTL_MS),
-        },
-      });
-    });
-    await this.sendWithoutExposingFailure(() =>
-      this.mail.sendPasswordReset(user.email, rawToken),
+    const issued = await this.issuePasswordResetToken(
+      user.id,
+      this.hashToken(rawToken),
+      now,
     );
+    if (issued) {
+      this.mail.dispatchPasswordReset(user.email, rawToken);
+    }
 
     return { ...PASSWORD_RECOVERY_RESPONSE };
   }
@@ -252,6 +242,13 @@ export class AccountsService {
       try {
         return await this.prisma.$transaction(
           async (transaction: Prisma.TransactionClient) => {
+            const user = await transaction.user.findUnique({
+              where: { id: userId },
+            });
+            if (!user || user.emailVerifiedAt || user.status !== 'ACTIVE') {
+              return false;
+            }
+
             const latestToken = await transaction.emailToken.findFirst({
               where: {
                 userId,
@@ -300,6 +297,76 @@ export class AccountsService {
     return false;
   }
 
+  private async issuePasswordResetToken(
+    userId: number,
+    tokenHash: string,
+    now: Date,
+  ): Promise<boolean> {
+    for (
+      let attempt = 1;
+      attempt <= SERIALIZABLE_TRANSACTION_MAX_ATTEMPTS;
+      attempt += 1
+    ) {
+      try {
+        return await this.prisma.$transaction(
+          async (transaction: Prisma.TransactionClient) => {
+            const user = await transaction.user.findUnique({
+              where: { id: userId },
+            });
+            if (!user || !user.emailVerifiedAt || user.status !== 'ACTIVE') {
+              return false;
+            }
+
+            const latestToken = await transaction.passwordResetToken.findFirst({
+              where: {
+                userId,
+                consumedAt: null,
+                revokedAt: null,
+              },
+              orderBy: { createdAt: 'desc' },
+            });
+            if (
+              latestToken &&
+              latestToken.createdAt >
+                new Date(now.getTime() - PASSWORD_RESET_REQUEST_INTERVAL_MS)
+            ) {
+              return false;
+            }
+
+            await transaction.passwordResetToken.updateMany({
+              where: {
+                userId,
+                consumedAt: null,
+                revokedAt: null,
+              },
+              data: { revokedAt: now },
+            });
+            await transaction.passwordResetToken.create({
+              data: {
+                userId,
+                tokenHash,
+                expiresAt: new Date(
+                  now.getTime() + PASSWORD_RESET_TOKEN_TTL_MS,
+                ),
+              },
+            });
+            return true;
+          },
+          { isolationLevel: 'Serializable' },
+        );
+      } catch (error: unknown) {
+        if (!this.hasPrismaErrorCode(error, 'P2034')) {
+          throw error;
+        }
+        if (attempt === SERIALIZABLE_TRANSACTION_MAX_ATTEMPTS) {
+          return false;
+        }
+      }
+    }
+
+    return false;
+  }
+
   private isUniqueConstraint(error: unknown): boolean {
     return this.hasPrismaErrorCode(error, 'P2002');
   }
@@ -311,15 +378,5 @@ export class AccountsService {
       'code' in error &&
       error.code === code
     );
-  }
-
-  private async sendWithoutExposingFailure(
-    send: () => Promise<void>,
-  ): Promise<void> {
-    try {
-      await send();
-    } catch {
-      // 公开响应必须与未知邮箱一致；邮件传输自身负责安全诊断。
-    }
   }
 }
