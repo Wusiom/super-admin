@@ -353,6 +353,8 @@ function createPrismaFake() {
 
 function createFixture() {
   const database = createPrismaFake();
+  type MailTaskResult = { email: string; token: string } | null;
+  type MailTask = () => Promise<MailTaskResult>;
   const sendVerification = jest
     .fn<Promise<void>, [string, string]>()
     .mockResolvedValue(undefined);
@@ -369,11 +371,41 @@ function createFixture() {
       void sendPasswordReset(email, token).catch(() => undefined);
     },
   );
+  const pendingTasks = new Set<Promise<void>>();
+  const manageTask = (
+    work: MailTask,
+    send: (email: string, token: string) => Promise<void>,
+  ): void => {
+    const task = Promise.resolve()
+      .then(work)
+      .then(async (result) => {
+        if (result) {
+          await send(result.email, result.token);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        pendingTasks.delete(task);
+      });
+    pendingTasks.add(task);
+  };
+  const dispatchVerificationTask = jest.fn<void, [MailTask]>((work) => {
+    manageTask(work, sendVerification);
+  });
+  const dispatchPasswordResetTask = jest.fn<void, [MailTask]>((work) => {
+    manageTask(work, sendPasswordReset);
+  });
+  const drain = async (): Promise<void> => {
+    await Promise.all(pendingTasks);
+  };
   const mail = {
     sendVerification,
     sendPasswordReset,
     dispatchVerification,
     dispatchPasswordReset,
+    dispatchVerificationTask,
+    dispatchPasswordResetTask,
+    drain,
   };
   const service = new AccountsService(database.prisma as never, mail as never);
 
@@ -554,17 +586,20 @@ describe('AccountsService', () => {
     });
     const genericResponse =
       await service.resendVerification('alice@example.com');
+    await mail.drain();
     jest.advanceTimersByTime(59_999);
 
     await expect(
       service.resendVerification('alice@example.com'),
     ).resolves.toEqual(genericResponse);
+    await mail.drain();
     expect(mail.sendVerification).toHaveBeenCalledTimes(1);
 
     jest.advanceTimersByTime(1);
     await expect(
       service.resendVerification(' ALICE@EXAMPLE.COM '),
     ).resolves.toEqual(genericResponse);
+    await mail.drain();
     expect(mail.sendVerification).toHaveBeenCalledTimes(2);
     expect(emailTokens).toHaveLength(2);
     expect(emailTokens[0].revokedAt).toEqual(new Date());
@@ -611,6 +646,61 @@ describe('AccountsService', () => {
     expect(settledBeforeSmtp).toBe(true);
   });
 
+  it.each([
+    ['存在的账户', true],
+    ['不存在的账户', false],
+  ])(
+    '重发对%s在数据库查询完成前即返回统一响应，后台仅为符合条件账户签发并发信',
+    async (_name, exists) => {
+      const { service, mail, prisma, emailTokens } = createFixture();
+      if (exists) {
+        await service.register({
+          email: 'alice@example.com',
+          password: 'Correct-Horse-Battery-Staple-42',
+        });
+        jest.advanceTimersByTime(60_000);
+      }
+      prisma.$transaction.mockClear();
+      const readUser = prisma.user.findUnique.getMockImplementation();
+      if (!readUser) {
+        throw new Error('user.findUnique fake is required');
+      }
+      let markQueryStarted: () => void = () => undefined;
+      const queryStarted = new Promise<void>((resolve) => {
+        markQueryStarted = resolve;
+      });
+      let releaseQuery: () => void = () => undefined;
+      const queryReleased = new Promise<void>((resolve) => {
+        releaseQuery = resolve;
+      });
+      prisma.user.findUnique.mockImplementationOnce(async (args) => {
+        markQueryStarted();
+        await queryReleased;
+        return readUser(args);
+      });
+
+      let responseSettled = false;
+      const response = service
+        .resendVerification(
+          exists ? 'alice@example.com' : 'unknown@example.com',
+        )
+        .then((value) => {
+          responseSettled = true;
+          return value;
+        });
+      await queryStarted;
+      await Promise.resolve();
+      expect(responseSettled).toBe(true);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+
+      releaseQuery();
+      await response;
+      await mail.drain();
+      expect(emailTokens).toHaveLength(exists ? 2 : 0);
+      expect(mail.sendVerification).toHaveBeenCalledTimes(exists ? 2 : 0);
+    },
+  );
+
   it('两个并发重发请求在边界到达时只签发并发送一个新令牌', async () => {
     const { service, mail, transactionHooks, emailTokens } = createFixture();
     await service.register({
@@ -636,6 +726,7 @@ describe('AccountsService', () => {
       service.resendVerification('alice@example.com'),
       service.resendVerification(' ALICE@EXAMPLE.COM '),
     ]);
+    await mail.drain();
 
     expect(responses[0]).toEqual(responses[1]);
     expect(emailTokens).toHaveLength(2);
@@ -655,7 +746,7 @@ describe('AccountsService', () => {
       password: 'Correct-Horse-Battery-Staple-42',
     });
     const verificationToken = mail.sendVerification.mock.calls[0][1];
-    mail.dispatchVerification.mockClear();
+    mail.sendVerification.mockClear();
     jest.advanceTimersByTime(60_000);
 
     let markTransactionReadStarted: () => void = () => undefined;
@@ -681,13 +772,14 @@ describe('AccountsService', () => {
     await service.verifyEmail(verificationToken);
     releaseTransactionRead();
     await resend;
+    await mail.drain();
 
     expect(emailTokens).toHaveLength(1);
     expect(emailTokens[0].consumedAt).toEqual(new Date());
     expect(transactionHooks.beforeUserFindUnique).toHaveBeenCalledWith({
       where: { id: users[0]?.id },
     });
-    expect(mail.dispatchVerification).not.toHaveBeenCalled();
+    expect(mail.sendVerification).not.toHaveBeenCalled();
   });
 
   it('Serializable 事务遇到一次 P2034 后重试并只发送实际签发的令牌', async () => {
@@ -718,6 +810,7 @@ describe('AccountsService', () => {
     await expect(
       service.resendVerification('alice@example.com'),
     ).resolves.toEqual(await service.resendVerification('unknown@example.com'));
+    await mail.drain();
     expect(conflicts).toBe(1);
     expect(emailTokens).toHaveLength(2);
     expect(mail.sendVerification).toHaveBeenCalledTimes(2);
@@ -741,6 +834,7 @@ describe('AccountsService', () => {
     await expect(
       service.resendVerification('alice@example.com'),
     ).resolves.toEqual(genericResponse);
+    await mail.drain();
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(3);
     expect(emailTokens).toHaveLength(1);
@@ -752,16 +846,19 @@ describe('AccountsService', () => {
     const unknownResponse = await service.requestPasswordReset(
       'unknown@example.com',
     );
+    await mail.drain();
     await service.register({
       email: 'alice@example.com',
       password: 'Correct-Horse-Battery-Staple-42',
     });
     const unverifiedResponse =
       await service.requestPasswordReset('alice@example.com');
+    await mail.drain();
     users[0].emailVerifiedAt = new Date();
     const verifiedResponse = await service.requestPasswordReset(
       ' ALICE@EXAMPLE.COM ',
     );
+    await mail.drain();
 
     expect(unverifiedResponse).toEqual(unknownResponse);
     expect(verifiedResponse).toEqual(unknownResponse);
@@ -810,13 +907,71 @@ describe('AccountsService', () => {
     const settledBeforeSmtpFailure = responseSettled;
     failSend();
     const publicResponse = await response;
+    await mail.drain();
     const unknownResponse = await service.requestPasswordReset(
       'unknown@example.com',
     );
+    await mail.drain();
 
     expect(settledBeforeSmtpFailure).toBe(true);
     expect(publicResponse).toEqual(unknownResponse);
   });
+
+  it.each([
+    ['存在且已验证的账户', true],
+    ['不存在的账户', false],
+  ])(
+    '找回对%s在数据库查询完成前即返回统一响应，后台仅为符合条件账户签发并发信',
+    async (_name, exists) => {
+      const { service, mail, prisma, users, passwordResetTokens } =
+        createFixture();
+      if (exists) {
+        await service.register({
+          email: 'alice@example.com',
+          password: 'Correct-Horse-Battery-Staple-42',
+        });
+        users[0].emailVerifiedAt = new Date();
+      }
+      prisma.$transaction.mockClear();
+      const readUser = prisma.user.findUnique.getMockImplementation();
+      if (!readUser) {
+        throw new Error('user.findUnique fake is required');
+      }
+      let markQueryStarted: () => void = () => undefined;
+      const queryStarted = new Promise<void>((resolve) => {
+        markQueryStarted = resolve;
+      });
+      let releaseQuery: () => void = () => undefined;
+      const queryReleased = new Promise<void>((resolve) => {
+        releaseQuery = resolve;
+      });
+      prisma.user.findUnique.mockImplementationOnce(async (args) => {
+        markQueryStarted();
+        await queryReleased;
+        return readUser(args);
+      });
+
+      let responseSettled = false;
+      const response = service
+        .requestPasswordReset(
+          exists ? 'alice@example.com' : 'unknown@example.com',
+        )
+        .then((value) => {
+          responseSettled = true;
+          return value;
+        });
+      await queryStarted;
+      await Promise.resolve();
+      expect(responseSettled).toBe(true);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+
+      releaseQuery();
+      await response;
+      await mail.drain();
+      expect(passwordResetTokens).toHaveLength(exists ? 1 : 0);
+      expect(mail.sendPasswordReset).toHaveBeenCalledTimes(exists ? 1 : 0);
+    },
+  );
 
   it('两个并发找回请求最多签发一个活动令牌并派发一次邮件', async () => {
     const { service, mail, users, passwordResetTokens } = createFixture();
@@ -830,6 +985,7 @@ describe('AccountsService', () => {
       service.requestPasswordReset('alice@example.com'),
       service.requestPasswordReset(' ALICE@EXAMPLE.COM '),
     ]);
+    await mail.drain();
 
     expect(responses[0]).toEqual(responses[1]);
     expect(passwordResetTokens).toHaveLength(1);
@@ -838,7 +994,8 @@ describe('AccountsService', () => {
         (token) => token.consumedAt === null && token.revokedAt === null,
       ),
     ).toHaveLength(1);
-    expect(mail.dispatchPasswordReset).toHaveBeenCalledTimes(1);
+    expect(mail.dispatchPasswordResetTask).toHaveBeenCalledTimes(2);
+    expect(mail.sendPasswordReset).toHaveBeenCalledTimes(1);
   });
 
   it('密码找回 Serializable 事务遇到一次 P2034 后重试并只派发实际签发的令牌', async () => {
@@ -867,10 +1024,12 @@ describe('AccountsService', () => {
     });
 
     await service.requestPasswordReset('alice@example.com');
+    await mail.drain();
 
     expect(conflicts).toBe(1);
     expect(passwordResetTokens).toHaveLength(1);
-    expect(mail.dispatchPasswordReset).toHaveBeenCalledTimes(1);
+    expect(mail.dispatchPasswordResetTask).toHaveBeenCalledTimes(1);
+    expect(mail.sendPasswordReset).toHaveBeenCalledTimes(1);
   });
 
   it('密码找回持续 P2034 时有限重试、返回通用响应且不派发邮件', async () => {
@@ -892,10 +1051,11 @@ describe('AccountsService', () => {
     await expect(
       service.requestPasswordReset('alice@example.com'),
     ).resolves.toEqual(unknownResponse);
+    await mail.drain();
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(3);
     expect(passwordResetTokens).toHaveLength(0);
-    expect(mail.dispatchPasswordReset).not.toHaveBeenCalled();
+    expect(mail.sendPasswordReset).not.toHaveBeenCalled();
   });
 
   it('持久化快照和账户响应都不包含密码或原始邮件令牌', async () => {
@@ -910,6 +1070,7 @@ describe('AccountsService', () => {
     await service.verifyEmail(verificationToken);
     const recoveryResponse =
       await service.requestPasswordReset('alice@example.com');
+    await mail.drain();
     const resetToken = mail.sendPasswordReset.mock.calls[0][1];
     const persistedSnapshot = JSON.stringify({
       users,

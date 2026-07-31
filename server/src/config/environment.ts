@@ -15,6 +15,16 @@ const portSchema = z.preprocess(
     .max(65535, '必须小于等于 65535'),
 );
 
+const durationMsSchema = z.preprocess(
+  (value) =>
+    typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value,
+  z
+    .number()
+    .int('必须是整数')
+    .min(1, '必须大于等于 1')
+    .max(60_000, '必须小于等于 60000'),
+);
+
 const booleanSchema = z
   .union([z.boolean(), z.literal('true'), z.literal('false')])
   .transform((value) =>
@@ -137,6 +147,10 @@ export const environmentSchema = z
     SMTP_FROM: z.string().email('必须是合法邮箱地址'),
     SMTP_USER: optionalSecretStringSchema,
     SMTP_PASSWORD: optionalSecretStringSchema,
+    SMTP_CONNECTION_TIMEOUT_MS: durationMsSchema,
+    SMTP_GREETING_TIMEOUT_MS: durationMsSchema,
+    SMTP_SOCKET_TIMEOUT_MS: durationMsSchema,
+    MAIL_DRAIN_TIMEOUT_MS: durationMsSchema,
     APP_PUBLIC_URL: httpUrlSchema,
   })
   .superRefine((environment, context) => {

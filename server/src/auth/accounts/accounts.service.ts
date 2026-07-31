@@ -165,48 +165,48 @@ export class AccountsService {
     return { ...VERIFICATION_RESPONSE };
   }
 
-  async resendVerification(email: string): Promise<PublicMessage> {
-    const user = await this.prisma.user.findUnique({
-      where: { emailNormalized: this.normalizeEmail(email) },
+  resendVerification(email: string): Promise<PublicMessage> {
+    const emailNormalized = this.normalizeEmail(email);
+    this.mail.dispatchVerificationTask(async () => {
+      const user = await this.prisma.user.findUnique({
+        where: { emailNormalized },
+      });
+      if (!user || user.emailVerifiedAt || user.status !== 'ACTIVE') {
+        return null;
+      }
+
+      const now = new Date();
+      const rawToken = this.createRawToken();
+      const issued = await this.issueVerificationToken(
+        user.id,
+        this.hashToken(rawToken),
+        now,
+      );
+      return issued ? { email: user.email, token: rawToken } : null;
     });
-    if (!user || user.emailVerifiedAt || user.status !== 'ACTIVE') {
-      return { ...VERIFICATION_RESEND_RESPONSE };
-    }
-
-    const now = new Date();
-    const rawToken = this.createRawToken();
-    const issued = await this.issueVerificationToken(
-      user.id,
-      this.hashToken(rawToken),
-      now,
-    );
-    if (issued) {
-      this.mail.dispatchVerification(user.email, rawToken);
-    }
-
-    return { ...VERIFICATION_RESEND_RESPONSE };
+    return Promise.resolve({ ...VERIFICATION_RESEND_RESPONSE });
   }
 
-  async requestPasswordReset(email: string): Promise<PublicMessage> {
-    const user = await this.prisma.user.findUnique({
-      where: { emailNormalized: this.normalizeEmail(email) },
+  requestPasswordReset(email: string): Promise<PublicMessage> {
+    const emailNormalized = this.normalizeEmail(email);
+    this.mail.dispatchPasswordResetTask(async () => {
+      const user = await this.prisma.user.findUnique({
+        where: { emailNormalized },
+      });
+      if (!user || !user.emailVerifiedAt || user.status !== 'ACTIVE') {
+        return null;
+      }
+
+      const rawToken = this.createRawToken();
+      const now = new Date();
+      const issued = await this.issuePasswordResetToken(
+        user.id,
+        this.hashToken(rawToken),
+        now,
+      );
+      return issued ? { email: user.email, token: rawToken } : null;
     });
-    if (!user || !user.emailVerifiedAt || user.status !== 'ACTIVE') {
-      return { ...PASSWORD_RECOVERY_RESPONSE };
-    }
-
-    const rawToken = this.createRawToken();
-    const now = new Date();
-    const issued = await this.issuePasswordResetToken(
-      user.id,
-      this.hashToken(rawToken),
-      now,
-    );
-    if (issued) {
-      this.mail.dispatchPasswordReset(user.email, rawToken);
-    }
-
-    return { ...PASSWORD_RECOVERY_RESPONSE };
+    return Promise.resolve({ ...PASSWORD_RECOVERY_RESPONSE });
   }
 
   private normalizeEmail(email: string): string {

@@ -1,7 +1,14 @@
-import { Logger } from '@nestjs/common';
+import { INestApplication, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Test } from '@nestjs/testing';
 import * as nodemailer from 'nodemailer';
 import { DiagnosticMailTransport } from './diagnostic-mail.transport';
-import { MailService, MailTransport } from './mail.service';
+import {
+  MAIL_TRANSPORT,
+  MailMessage,
+  MailService,
+  MailTransport,
+} from './mail.service';
 import { SmtpMailTransport } from './smtp-mail.transport';
 
 jest.mock('nodemailer', () => ({
@@ -18,6 +25,100 @@ const mockedNodemailer = nodemailer as unknown as {
 };
 
 describe('MailService', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('app.close 会等待已开始的受管邮件任务完成', async () => {
+    let finishSend: () => void = () => undefined;
+    const pendingSend = new Promise<void>((resolve) => {
+      finishSend = resolve;
+    });
+    const transport: MailTransport = {
+      send: jest.fn(() => pendingSend),
+    };
+    const config = {
+      getOrThrow: jest.fn().mockReturnValue('https://app.example.test'),
+      get: jest.fn().mockReturnValue(1_000),
+    };
+    const module = await Test.createTestingModule({
+      providers: [
+        MailService,
+        { provide: MAIL_TRANSPORT, useValue: transport },
+        { provide: ConfigService, useValue: config },
+      ],
+    }).compile();
+    const app: INestApplication = module.createNestApplication();
+    await app.init();
+    const service = app.get(MailService);
+    service.dispatchVerification('alice@example.com', 'token');
+    await Promise.resolve();
+
+    let closeSettled = false;
+    const close = app.close().then(() => {
+      closeSettled = true;
+    });
+    await Promise.resolve();
+    expect(closeSettled).toBe(false);
+
+    finishSend();
+    await close;
+    expect(closeSettled).toBe(true);
+  });
+
+  it('永不结束的受管任务在 drain 截止后不会无限阻塞', async () => {
+    jest.useFakeTimers();
+    const transport: MailTransport = {
+      send: jest.fn(() => new Promise<void>(() => undefined)),
+    };
+    const config = {
+      getOrThrow: jest.fn().mockReturnValue('https://app.example.test'),
+      get: jest.fn().mockReturnValue(1_000),
+    };
+    const service = new MailService(transport, config as never);
+    service.dispatchVerification('alice@example.com', 'token');
+
+    let drainSettled = false;
+    void service.onModuleDestroy().then(() => {
+      drainSettled = true;
+    });
+    await Promise.resolve();
+    expect(drainSettled).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(1_000);
+    await Promise.resolve();
+    expect(drainSettled).toBe(true);
+  });
+
+  it('受管验证任务只在返回邮件载荷后发送', async () => {
+    const send = jest.fn<Promise<void>, [MailMessage]>().mockResolvedValue();
+    const config = {
+      getOrThrow: jest.fn().mockReturnValue('https://app.example.test'),
+      get: jest.fn().mockReturnValue(1_000),
+    };
+    const service = new MailService({ send }, config as never);
+    const dispatchTask = (
+      service as unknown as {
+        dispatchVerificationTask?: (
+          work: () => Promise<{ email: string; token: string } | null>,
+        ) => void;
+      }
+    ).dispatchVerificationTask;
+
+    expect(dispatchTask).toBeDefined();
+    dispatchTask?.call(service, () =>
+      Promise.resolve({
+        email: 'alice@example.com',
+        token: 'verification-token',
+      }),
+    );
+    await service.onModuleDestroy();
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0].to).toBe('alice@example.com');
+    expect(send.mock.calls[0][0].text).toContain('verification-token');
+  });
+
   it('通过 Transport 发送含限时原始令牌的验证链接', async () => {
     const send = jest.fn<
       Promise<void>,
@@ -26,6 +127,7 @@ describe('MailService', () => {
     const transport: MailTransport = { send };
     const config = {
       getOrThrow: jest.fn().mockReturnValue('https://app.example.test/base'),
+      get: jest.fn().mockReturnValue(1_000),
     };
     const service = new MailService(transport, config as never);
 
@@ -50,6 +152,7 @@ describe('MailService', () => {
     const transport: MailTransport = { send };
     const config = {
       getOrThrow: jest.fn().mockReturnValue('https://app.example.test'),
+      get: jest.fn().mockReturnValue(1_000),
     };
     const service = new MailService(transport, config as never);
 
@@ -75,6 +178,7 @@ describe('MailService', () => {
     };
     const config = {
       getOrThrow: jest.fn().mockReturnValue('https://app.example.test'),
+      get: jest.fn().mockReturnValue(1_000),
     };
     const error = jest.spyOn(Logger.prototype, 'error').mockImplementation();
     const service = new MailService(transport, config as never);
@@ -90,6 +194,32 @@ describe('MailService', () => {
     expect(serializedLog).not.toContain('alice@example.com');
     expect(serializedLog).not.toContain('RAW_TOKEN_SENTINEL');
     expect(serializedLog).not.toContain('SMTP_RESPONSE_SENTINEL');
+    error.mockRestore();
+  });
+
+  it('受管数据库任务失败只记录脱敏事件且不发送邮件', async () => {
+    const send = jest.fn<Promise<void>, [MailMessage]>().mockResolvedValue();
+    const config = {
+      getOrThrow: jest.fn().mockReturnValue('https://app.example.test'),
+      get: jest.fn().mockReturnValue(1_000),
+    };
+    const error = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+    const service = new MailService({ send }, config as never);
+
+    service.dispatchPasswordResetTask(() =>
+      Promise.reject(
+        new Error('DATABASE_SENTINEL alice@example.com RAW_TOKEN_SENTINEL'),
+      ),
+    );
+    await service.onModuleDestroy();
+
+    expect(send).not.toHaveBeenCalled();
+    const serializedLog = JSON.stringify(error.mock.calls);
+    expect(serializedLog).toContain('mail_dispatch_failed');
+    expect(serializedLog).toContain('password_reset');
+    expect(serializedLog).not.toContain('DATABASE_SENTINEL');
+    expect(serializedLog).not.toContain('alice@example.com');
+    expect(serializedLog).not.toContain('RAW_TOKEN_SENTINEL');
     error.mockRestore();
   });
 });
@@ -126,6 +256,9 @@ describe('SmtpMailTransport', () => {
       SMTP_PORT: 465,
       SMTP_SECURE: true,
       SMTP_FROM: 'noreply@example.test',
+      SMTP_CONNECTION_TIMEOUT_MS: 5_000,
+      SMTP_GREETING_TIMEOUT_MS: 5_000,
+      SMTP_SOCKET_TIMEOUT_MS: 8_000,
     };
     const config = {
       getOrThrow: jest.fn((key: string) => values[key]),
@@ -143,6 +276,9 @@ describe('SmtpMailTransport', () => {
       host: 'smtp.example.test',
       port: 465,
       secure: true,
+      connectionTimeout: 5_000,
+      greetingTimeout: 5_000,
+      socketTimeout: 8_000,
     });
     expect(sendMail).toHaveBeenCalledWith({
       from: 'noreply@example.test',
@@ -166,6 +302,9 @@ describe('SmtpMailTransport', () => {
       SMTP_FROM: 'noreply@example.test',
       SMTP_USER: 'smtp-user',
       SMTP_PASSWORD: 'SMTP_PASSWORD_SENTINEL_7a42',
+      SMTP_CONNECTION_TIMEOUT_MS: 5_000,
+      SMTP_GREETING_TIMEOUT_MS: 5_000,
+      SMTP_SOCKET_TIMEOUT_MS: 8_000,
     };
     const config = {
       getOrThrow: jest.fn((key: string) => values[key]),
@@ -180,6 +319,9 @@ describe('SmtpMailTransport', () => {
       host: 'smtp.example.test',
       port: 465,
       secure: true,
+      connectionTimeout: 5_000,
+      greetingTimeout: 5_000,
+      socketTimeout: 8_000,
       auth: {
         user: 'smtp-user',
         pass: 'SMTP_PASSWORD_SENTINEL_7a42',

@@ -15,6 +15,10 @@ const validEnvironment = {
   SMTP_PORT: '1025',
   SMTP_SECURE: 'false',
   SMTP_FROM: 'noreply@example.test',
+  SMTP_CONNECTION_TIMEOUT_MS: '5000',
+  SMTP_GREETING_TIMEOUT_MS: '5000',
+  SMTP_SOCKET_TIMEOUT_MS: '8000',
+  MAIL_DRAIN_TIMEOUT_MS: '8000',
   APP_PUBLIC_URL: 'http://localhost:5173',
 };
 
@@ -76,7 +80,22 @@ describe('validateEnvironment', () => {
       REDIS_PORT: 6379,
       SMTP_PORT: 1025,
       SMTP_SECURE: false,
+      SMTP_CONNECTION_TIMEOUT_MS: 5_000,
+      SMTP_GREETING_TIMEOUT_MS: 5_000,
+      SMTP_SOCKET_TIMEOUT_MS: 8_000,
+      MAIL_DRAIN_TIMEOUT_MS: 8_000,
     });
+  });
+
+  it.each([
+    ['SMTP_CONNECTION_TIMEOUT_MS', '0'],
+    ['SMTP_GREETING_TIMEOUT_MS', '-1'],
+    ['SMTP_SOCKET_TIMEOUT_MS', 'not-a-number'],
+    ['MAIL_DRAIN_TIMEOUT_MS', '60001'],
+  ])('拒绝无效的有界超时 %s=%s', (field, value) => {
+    expect(() =>
+      validateEnvironment({ ...validEnvironment, [field]: value }),
+    ).toThrow(field);
   });
 
   it('显式允许本地 Mailpit 不配置 SMTP 认证', () => {

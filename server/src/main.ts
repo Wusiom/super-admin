@@ -5,19 +5,35 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.enableShutdownHooks();
 
   // 动态 CORS：允许 localhost 开发服务器 + Chrome 扩展来源
   app.enableCors({
-    origin: (origin, callback) => {
+    origin: (
+      origin: string | undefined,
+      callback: (error: Error | null, allow?: boolean) => void,
+    ) => {
       // 无 origin 的请求（如 Postman、curl、service worker fetch）允许通过
-      if (!origin) return callback(null, true);
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
 
       // localhost 开发服务器
-      if (origin.startsWith('http://localhost:')) return callback(null, true);
-      if (origin.startsWith('http://127.0.0.1:')) return callback(null, true);
+      if (origin.startsWith('http://localhost:')) {
+        callback(null, true);
+        return;
+      }
+      if (origin.startsWith('http://127.0.0.1:')) {
+        callback(null, true);
+        return;
+      }
 
       // Chrome 扩展
-      if (origin.startsWith('chrome-extension://')) return callback(null, true);
+      if (origin.startsWith('chrome-extension://')) {
+        callback(null, true);
+        return;
+      }
 
       callback(null, true); // 生产环境按需收紧
     },
@@ -30,4 +46,4 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   await app.listen(process.env.PORT ?? 3000);
 }
-bootstrap();
+void bootstrap();

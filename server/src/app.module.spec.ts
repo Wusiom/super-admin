@@ -1,4 +1,6 @@
 import { Test } from '@nestjs/testing';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { PrismaService } from './prisma/prisma.service';
 import { BullMqService } from './core/bullmq.service';
 import { AccountsService } from './auth/accounts/accounts.service';
@@ -11,6 +13,12 @@ jest.mock('jsdom', () => ({
 describe('AppModule', () => {
   const originalEnvironment = { ...process.env };
   let AppModule: typeof import('./app.module').AppModule;
+
+  it('bootstrap 启用 Nest shutdown hooks 以触发受管任务 drain', () => {
+    const mainSource = readFileSync(resolve(__dirname, 'main.ts'), 'utf8');
+
+    expect(mainSource).toContain('app.enableShutdownHooks()');
+  });
 
   beforeAll(() => {
     Object.assign(process.env, {
@@ -28,9 +36,14 @@ describe('AppModule', () => {
       SMTP_PORT: '1025',
       SMTP_SECURE: 'false',
       SMTP_FROM: 'noreply@example.test',
+      SMTP_CONNECTION_TIMEOUT_MS: '5000',
+      SMTP_GREETING_TIMEOUT_MS: '5000',
+      SMTP_SOCKET_TIMEOUT_MS: '8000',
+      MAIL_DRAIN_TIMEOUT_MS: '8000',
       APP_PUBLIC_URL: 'http://localhost:5173',
     });
 
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     ({ AppModule } = require('./app.module') as typeof import('./app.module'));
   });
 

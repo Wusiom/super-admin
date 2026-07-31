@@ -9,6 +9,11 @@ export type MailMessage = {
   text: string;
 };
 
+export type MailTaskPayload = {
+  email: string;
+  token: string;
+};
+
 export interface MailTransport {
   send(message: MailMessage): Promise<void>;
 }
@@ -53,8 +58,47 @@ export class MailService implements OnModuleDestroy {
     this.dispatch('password_reset', () => this.sendPasswordReset(email, token));
   }
 
+  dispatchVerificationTask(work: () => Promise<MailTaskPayload | null>): void {
+    this.dispatch('verification', async () => {
+      const payload = await work();
+      if (payload) {
+        await this.sendVerification(payload.email, payload.token);
+      }
+    });
+  }
+
+  dispatchPasswordResetTask(work: () => Promise<MailTaskPayload | null>): void {
+    this.dispatch('password_reset', async () => {
+      const payload = await work();
+      if (payload) {
+        await this.sendPasswordReset(payload.email, payload.token);
+      }
+    });
+  }
+
   async onModuleDestroy(): Promise<void> {
-    await Promise.all(this.pendingDispatches);
+    const pending = [...this.pendingDispatches];
+    if (pending.length === 0) {
+      return;
+    }
+
+    const timeoutMs = this.config.get<number>('MAIL_DRAIN_TIMEOUT_MS') ?? 8_000;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.allSettled(pending),
+      new Promise<void>((resolve) => {
+        timeout = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    if (this.pendingDispatches.size > 0) {
+      this.logger.warn({
+        event: 'mail_drain_timeout',
+        pendingCount: this.pendingDispatches.size,
+      });
+    }
   }
 
   private createLink(path: string, token: string): string {

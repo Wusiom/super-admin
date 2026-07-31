@@ -88,6 +88,12 @@ SMTP_HOST=smtp.example.com
 SMTP_PORT=465
 SMTP_SECURE=true
 SMTP_FROM=noreply@example.com
+SMTP_USER=<由秘密管理器注入的 SMTP 用户名>
+SMTP_PASSWORD=<由秘密管理器注入的 SMTP 密码>
+SMTP_CONNECTION_TIMEOUT_MS=5000
+SMTP_GREETING_TIMEOUT_MS=5000
+SMTP_SOCKET_TIMEOUT_MS=8000
+MAIL_DRAIN_TIMEOUT_MS=8000
 APP_PUBLIC_URL=https://your-domain.example
 EOF
 ```
@@ -96,7 +102,11 @@ EOF
 
 `POSTGRES_PASSWORD`、两项 MinIO 根凭据、两项对象存储应用凭据、`JWT_ACCESS_SECRET` 和 `TOKEN_ENCRYPTION_KEY` 是主 Compose 的必填变量。MinIO 根凭据只供 `minio-init` 创建桶、应用用户和桶级策略；`server` 只能使用 `OBJECT_STORAGE_ACCESS_KEY` 与 `OBJECT_STORAGE_SECRET_KEY`，不能使用根凭据。
 
-生产环境还必须设置四项 SMTP 变量。`COMPOSE_FILE` 让生产部署自动叠加 `docker-compose.production.yml`：Mailpit 不会启动，server 对 Mailpit 的依赖变成非必需，并连接外部 SMTP。所有生产秘密必须由 `.env` 或秘密管理器注入，不能提交到仓库。
+生产环境必须设置 SMTP 主机、端口、TLS 开关和发件人。`SMTP_USER` 与 `SMTP_PASSWORD` 必须成对配置，即同时提供或同时留空：仅可信内网 relay 或本地 Mailpit 可以不启用认证，互联网 SMTP 必须使用服务商凭据。密码和其他生产密钥必须由部署平台的秘密管理器注入并定期轮换，不能写入镜像、日志或提交到仓库。
+
+`SMTP_CONNECTION_TIMEOUT_MS`、`SMTP_GREETING_TIMEOUT_MS` 和 `SMTP_SOCKET_TIMEOUT_MS` 分别限制建立连接、等待 SMTP greeting 和 socket 活动的最长时间；`MAIL_DRAIN_TIMEOUT_MS` 限制 SIGTERM / 应用关闭时等待受管邮件任务的时间。默认值分别为 5000、5000、8000 和 8000 毫秒，均小于 Compose 为 server 配置的 15 秒 `stop_grace_period`，给 Nest 完成其余关闭流程留出余量。
+
+`COMPOSE_FILE` 让生产部署自动叠加 `docker-compose.production.yml`：Mailpit 不会启动，server 对 Mailpit 的依赖变成非必需，并连接外部 SMTP。
 
 构建前先检查变量插值和 Compose 结构：
 

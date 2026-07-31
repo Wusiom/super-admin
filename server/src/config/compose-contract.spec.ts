@@ -10,6 +10,7 @@ type ComposeService = {
   depends_on?: Record<string, { condition?: string; required?: boolean }>;
   entrypoint?: string[];
   profiles?: string[];
+  stop_grace_period?: string;
   volumes?: string[];
   tmpfs?: string[] | string;
   ports?: Array<
@@ -229,6 +230,10 @@ describe('Docker Compose 契约', () => {
     expect(exampleEnvironment).toMatch(/^SMTP_HOST=mailpit$/m);
     expect(exampleEnvironment).toMatch(/^SMTP_USER=$/m);
     expect(exampleEnvironment).toMatch(/^SMTP_PASSWORD=$/m);
+    expect(exampleEnvironment).toMatch(/^SMTP_CONNECTION_TIMEOUT_MS=5000$/m);
+    expect(exampleEnvironment).toMatch(/^SMTP_GREETING_TIMEOUT_MS=5000$/m);
+    expect(exampleEnvironment).toMatch(/^SMTP_SOCKET_TIMEOUT_MS=8000$/m);
+    expect(exampleEnvironment).toMatch(/^MAIL_DRAIN_TIMEOUT_MS=8000$/m);
   });
 
   it('SMTP 配置可由环境覆盖，生产覆盖禁用 Mailpit 强依赖', () => {
@@ -239,7 +244,12 @@ describe('Docker Compose 契约', () => {
       SMTP_FROM: '${SMTP_FROM:-noreply@example.test}',
       SMTP_USER: '${SMTP_USER:-}',
       SMTP_PASSWORD: '${SMTP_PASSWORD:-}',
+      SMTP_CONNECTION_TIMEOUT_MS: '${SMTP_CONNECTION_TIMEOUT_MS:-5000}',
+      SMTP_GREETING_TIMEOUT_MS: '${SMTP_GREETING_TIMEOUT_MS:-5000}',
+      SMTP_SOCKET_TIMEOUT_MS: '${SMTP_SOCKET_TIMEOUT_MS:-8000}',
+      MAIL_DRAIN_TIMEOUT_MS: '${MAIL_DRAIN_TIMEOUT_MS:-8000}',
     });
+    expect(compose.services.server.stop_grace_period).toBe('15s');
 
     const productionPath = resolve(
       projectRoot,
@@ -263,7 +273,26 @@ describe('Docker Compose 契约', () => {
       SMTP_FROM: '${SMTP_FROM:?生产环境必须设置 SMTP_FROM}',
       SMTP_USER: '${SMTP_USER:-}',
       SMTP_PASSWORD: '${SMTP_PASSWORD:-}',
+      SMTP_CONNECTION_TIMEOUT_MS: '${SMTP_CONNECTION_TIMEOUT_MS:-5000}',
+      SMTP_GREETING_TIMEOUT_MS: '${SMTP_GREETING_TIMEOUT_MS:-5000}',
+      SMTP_SOCKET_TIMEOUT_MS: '${SMTP_SOCKET_TIMEOUT_MS:-8000}',
+      MAIL_DRAIN_TIMEOUT_MS: '${MAIL_DRAIN_TIMEOUT_MS:-8000}',
     });
+  });
+
+  it('部署文档说明 SMTP 认证、超时与密钥管理边界', () => {
+    const deploymentGuide = readFileSync(
+      resolve(projectRoot, 'docs/deploy.md'),
+      'utf8',
+    );
+
+    expect(deploymentGuide).toContain('SMTP_USER');
+    expect(deploymentGuide).toContain('SMTP_PASSWORD');
+    expect(deploymentGuide).toContain('成对');
+    expect(deploymentGuide).toContain('MAIL_DRAIN_TIMEOUT_MS');
+    expect(deploymentGuide).toContain('SMTP_CONNECTION_TIMEOUT_MS');
+    expect(deploymentGuide).toContain('可信');
+    expect(deploymentGuide).not.toContain('四项 SMTP 变量');
   });
 
   describe('测试覆盖', () => {

@@ -12,6 +12,9 @@ type NodemailerModule = {
     host: string;
     port: number;
     secure: boolean;
+    connectionTimeout: number;
+    greetingTimeout: number;
+    socketTimeout: number;
     auth?: {
       user: string;
       pass: string;
@@ -33,6 +36,11 @@ export class SmtpMailTransport implements MailTransport {
       host: config.getOrThrow<string>('SMTP_HOST'),
       port: config.getOrThrow<number>('SMTP_PORT'),
       secure: config.getOrThrow<boolean>('SMTP_SECURE'),
+      connectionTimeout: config.getOrThrow<number>(
+        'SMTP_CONNECTION_TIMEOUT_MS',
+      ),
+      greetingTimeout: config.getOrThrow<number>('SMTP_GREETING_TIMEOUT_MS'),
+      socketTimeout: config.getOrThrow<number>('SMTP_SOCKET_TIMEOUT_MS'),
     };
     if (user && password) {
       options.auth = { user, pass: password };

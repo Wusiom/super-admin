@@ -96,6 +96,7 @@ services:
       context: .
       dockerfile: server/Dockerfile
     restart: unless-stopped
+    stop_grace_period: 15s
     depends_on:
       postgres:
         condition: service_healthy
@@ -123,6 +124,10 @@ services:
       SMTP_FROM: ${SMTP_FROM:-noreply@example.test}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_CONNECTION_TIMEOUT_MS: ${SMTP_CONNECTION_TIMEOUT_MS:-5000}
+      SMTP_GREETING_TIMEOUT_MS: ${SMTP_GREETING_TIMEOUT_MS:-5000}
+      SMTP_SOCKET_TIMEOUT_MS: ${SMTP_SOCKET_TIMEOUT_MS:-8000}
+      MAIL_DRAIN_TIMEOUT_MS: ${MAIL_DRAIN_TIMEOUT_MS:-8000}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost}
     healthcheck:
       test:
