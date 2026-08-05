@@ -20,8 +20,8 @@
 
 - [x] 3.1 Implement MailService abstraction with local diagnostic and SMTP transports
 - [x] 3.2 Implement registration, Argon2id password hashing, email verification, resend throttling, and generic recovery responses
-- [ ] 3.3 Implement login, rotating hashed refresh-token families, access-token refresh, logout, and logout-all behavior
-- [ ] 3.4 Implement password-reset token issue, expiry, one-time redemption, and session revocation
+- [x] 3.3 Implement login, rotating hashed refresh-token families, access-token refresh, logout, and logout-all behavior
+- [x] 3.4 Implement password-reset token issue, expiry, one-time redemption, and session revocation
 - [ ] 3.5 Implement trusted authentication context and `USER`/`ADMIN` authorization guards for Web and API routes
 - [ ] 3.6 Add ownership-aware repository helpers and apply them to every user-domain query and mutation
 - [ ] 3.7 Add unit and e2e tests for token reuse detection, admin route denial, last-administrator protection, and cross-user IDOR attempts

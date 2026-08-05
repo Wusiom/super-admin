@@ -4,9 +4,9 @@
 
 **目标：** 以完整的邮箱身份体系、可撤销 Web 会话、服务端强制角色、所有者隔离和限定作用域的扩展令牌，替代宽松的全局令牌访问。
 
-**状态：** 🔄 进行中（任务 2：轮换 Web 会话与密码重置）
+**状态：** 🔄 进行中（任务 3：RBAC、末位管理员保护与所有者隔离 Repository）
 
-**任务记录：** [任务 1：邮件抽象与账户注册](../summaries/02-task-01-mail-accounts.md)
+**任务记录：** [任务 1：邮件抽象与账户注册](../summaries/02-task-01-mail-accounts.md)｜[任务 2：轮换 Web 会话与密码重置](../summaries/02-task-02-sessions-password-reset.md)
 
 **架构：** 仅由 Web JWT 或哈希 API 令牌守卫创建可信请求主体。Controller 将该主体传给按所有者隔离的 Service；Repository 的每个选择条件均包含 `userId`。刷新令牌轮换采用令牌族和重用检测，扩展令牌则是仅限 `capture:create` 的独立凭据。
 
@@ -34,11 +34,11 @@
 - 测试：`server/src/auth/sessions/session.service.spec.ts`、`server/src/auth/password/password-reset.service.spec.ts`
 - 修改：`server/src/main.ts`、`server/src/app.module.ts`
 
-- [ ] 编写失败测试，覆盖短期访问 JWT、刷新令牌哈希存储、单次轮换、检测重用后撤销令牌族、登出、全部登出、重置令牌过期/单次兑换及重置密码触发会话撤销。
-- [ ] 运行两个聚焦测试套件，确认因实现缺失而失败。
-- [ ] 实现名为 `super_admin_refresh` 的刷新 Cookie，设置 `HttpOnly`、`SameSite=Lax`、路径 `/api/auth`，生产环境设置 `Secure`；刷新令牌使用 SHA-256 哈希，访问 JWT 进行签名，Argon2id 仅用于密码。
-- [ ] 添加 `cookie-parser`、Controller 端点、通用找回响应及可信 `AuthPrincipal { userId, role, sessionId, kind: 'web' }`；重新运行测试，预期 `PASS`。
-- [ ] 提交：`git commit -m "feat: add rotating web sessions"`。
+- [x] 编写失败测试，覆盖短期访问 JWT、刷新令牌哈希存储、单次轮换、检测重用后撤销令牌族、登出、全部登出、重置令牌过期/单次兑换及重置密码触发会话撤销。
+- [x] 运行两个聚焦测试套件，确认因实现缺失而失败。
+- [x] 实现名为 `super_admin_refresh` 的刷新 Cookie，设置 `HttpOnly`、`SameSite=Lax`、路径 `/api/auth`，生产环境设置 `Secure`；刷新令牌使用 SHA-256 哈希，访问 JWT 进行签名，Argon2id 仅用于密码。
+- [x] 添加 `cookie-parser`、Controller 端点、通用找回响应及可信 `AuthPrincipal { userId, role, sessionId, kind: 'web' }`；重新运行测试，预期 `PASS`。
+- [x] 提交：`git commit -m "feat: add rotating web sessions"`。
 
 ### 任务 3：RBAC、末位管理员保护与所有者隔离 Repository
 
