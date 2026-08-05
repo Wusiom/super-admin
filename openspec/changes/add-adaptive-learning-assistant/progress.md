@@ -4,7 +4,7 @@
 
 **总体进度：** 1/8 个实施切片完成（按切片数量计算为 12.5%）
 
-**当前工作：** 切片 2 进行中；任务 1“邮件抽象与账户注册”已完成，任务 2 待开始。
+**当前工作：** 切片 2 进行中，正在实施任务 2“轮换 Web 会话与密码重置”。
 
 **最后更新：** 2026-07-31
 
@@ -13,7 +13,7 @@
 | 序号 | 实施切片 | 状态 | 完成日期 | 结果记录 |
 | --- | --- | --- | --- | --- |
 | 01 | [基础设施与 PostgreSQL](plans/01-foundation-postgresql.md) | ✅ 已完成 | 2026-07-30 | [完成总结](summaries/01-foundation-postgresql.md) |
-| 02 | [身份、所有权与扩展令牌](plans/02-identity-ownership.md) | 🔄 进行中：1/6 个任务完成 | — | [任务 1 记录](summaries/02-task-01-mail-accounts.md) |
+| 02 | [身份、所有权与扩展令牌](plans/02-identity-ownership.md) | 🔄 进行中：任务 2 | — | [任务 1 记录](summaries/02-task-01-mail-accounts.md) |
 | 03 | [学习来源与学习契约](plans/03-learning-sources.md) | ⏳ 未开始 | — | — |
 | 04 | [模型网关与 LangGraph](plans/04-model-gateway-langgraph.md) | ⏳ 未开始 | — | — |
 | 05 | [自适应教学、画像与笔记](plans/05-learning-runtime.md) | ⏳ 未开始 | — | — |
