@@ -16,6 +16,7 @@ import type { AuthPrincipal } from './auth-principal';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { LoginDto, ResetPasswordDto } from './dto/session.dto';
 import { SessionService, type WebSessionTokens } from './session.service';
+import { Public } from '../rbac/roles.decorator';
 
 const REFRESH_COOKIE = 'super_admin_refresh';
 const REFRESH_COOKIE_OPTIONS = {
@@ -34,6 +35,7 @@ export class SessionController {
   ) {}
 
   @Post('login')
+  @Public()
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() dto: LoginDto,
@@ -48,6 +50,7 @@ export class SessionController {
   }
 
   @Post('refresh')
+  @Public()
   @HttpCode(HttpStatus.OK)
   async refresh(
     @Req()
@@ -83,6 +86,7 @@ export class SessionController {
   }
 
   @Post('reset-password')
+  @Public()
   @HttpCode(HttpStatus.NO_CONTENT)
   async resetPassword(@Body() dto: ResetPasswordDto): Promise<void> {
     await this.reset.resetPassword(dto.token, dto.password);

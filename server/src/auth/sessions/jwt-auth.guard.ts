@@ -6,17 +6,27 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import type { AuthPrincipal } from './auth-principal';
+import { PUBLIC_KEY } from '../rbac/roles.decorator';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly reflector: Reflector,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    if (
+      this.reflector.getAllAndOverride<boolean>(PUBLIC_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ])
+    )
+      return true;
     const request = context
       .switchToHttp()
       .getRequest<Request & { user?: AuthPrincipal }>();

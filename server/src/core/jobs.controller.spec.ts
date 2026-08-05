@@ -37,13 +37,16 @@ describe('JobsController getJobs', () => {
         ]),
       },
     };
-    const controller = new JobsController(prisma as any, {} as any);
+    const controller = new JobsController(prisma as any, {} as any, {} as any);
 
-    const result = await controller.getJobs('knowledge-capture');
+    const result = await controller.getJobs(
+      { userId: 99, role: 'USER', sessionId: 1, kind: 'web' },
+      'knowledge-capture',
+    );
     const job = result.jobs[0] as any;
 
     expect(prisma.knowledgeItem.findMany).toHaveBeenCalledWith({
-      where: { id: { in: [10] } },
+      where: { id: { in: [10] }, userId: 99 },
       select: { id: true, title: true, capturedAt: true },
     });
     expect(job).toEqual(

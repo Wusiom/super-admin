@@ -5,7 +5,6 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  NotFoundException,
   Param,
   Post,
   Put,
@@ -21,6 +20,10 @@ import { BullMqService } from '../../core/bullmq.service';
 import { JobEventService } from '../../core/job-events.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { captureProcessor } from './capture.processor';
+import { Public } from '../../auth/rbac/roles.decorator';
+import { CurrentUser } from '../../auth/sessions/current-user.decorator';
+import type { AuthPrincipal } from '../../auth/sessions/auth-principal';
+import { OwnedResourceService } from '../../common/ownership/owned-resource.service';
 
 class CaptureDto {
   @IsUrl({ require_tld: false }, { message: 'Invalid URL format' })
@@ -56,11 +59,13 @@ export class KnowledgeCaptureController {
     private readonly prisma: PrismaService,
     private readonly bullMqService: BullMqService,
     private readonly jobEvents: JobEventService,
+    private readonly ownedResources: OwnedResourceService,
   ) {
     void this.bullMqService;
   }
 
   @Post('capture')
+  @Public()
   @HttpCode(HttpStatus.CREATED)
   @UseGuards(ApiTokenGuard)
   async capture(
@@ -193,11 +198,13 @@ export class KnowledgeCaptureController {
 
   @Get('items')
   async listItems(
+    @CurrentUser() principal: AuthPrincipal,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
   ) {
     const [items, total] = await Promise.all([
       this.prisma.knowledgeItem.findMany({
+        where: { userId: principal.userId },
         orderBy: { capturedAt: 'desc' },
         skip: (Number(page) - 1) * Number(pageSize),
         take: Number(pageSize),
@@ -213,48 +220,61 @@ export class KnowledgeCaptureController {
           updatedAt: true,
         },
       }),
-      this.prisma.knowledgeItem.count(),
+      this.prisma.knowledgeItem.count({ where: { userId: principal.userId } }),
     ]);
     return { items, total, page: Number(page), pageSize: Number(pageSize) };
   }
 
   @Get('items/:id')
-  async getItem(@Param('id') id: string) {
-    const item = await this.prisma.knowledgeItem.findUnique({
-      where: { id: Number(id) },
-    });
-    if (!item) throw new NotFoundException('Knowledge item not found');
-    return item;
+  async getItem(
+    @Param('id') id: string,
+    @CurrentUser() principal: AuthPrincipal,
+  ) {
+    return this.ownedResources.getKnowledgeItemOrThrow(
+      Number(id),
+      principal.userId,
+    );
   }
 
   @Put('items/:id')
   async updateItem(
     @Param('id') id: string,
     @Body() dto: UpdateKnowledgeItemDto,
+    @CurrentUser() principal: AuthPrincipal,
   ) {
-    const item = await this.prisma.knowledgeItem.findUnique({
-      where: { id: Number(id) },
-    });
-    if (!item) throw new NotFoundException('Knowledge item not found');
-    const updated = await this.prisma.knowledgeItem.update({
-      where: { id: Number(id) },
+    await this.ownedResources.getKnowledgeItemOrThrow(
+      Number(id),
+      principal.userId,
+    );
+    await this.prisma.knowledgeItem.updateMany({
+      where: { id: Number(id), userId: principal.userId },
       data: { contentMarkdown: dto.contentMarkdown },
     });
-    return updated;
+    return this.ownedResources.getKnowledgeItemOrThrow(
+      Number(id),
+      principal.userId,
+    );
   }
 
   @Delete('items/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteItem(@Param('id') id: string) {
-    const item = await this.prisma.knowledgeItem.findUnique({
-      where: { id: Number(id) },
-    });
-    if (!item) throw new NotFoundException('Knowledge item not found');
+  async deleteItem(
+    @Param('id') id: string,
+    @CurrentUser() principal: AuthPrincipal,
+  ) {
+    const item = await this.ownedResources.getKnowledgeItemOrThrow(
+      Number(id),
+      principal.userId,
+    );
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.knowledgeItem.delete({ where: { id: Number(id) } });
+      await tx.knowledgeItem.deleteMany({
+        where: { id: Number(id), userId: principal.userId },
+      });
       if (item.jobId) {
-        await tx.job.delete({ where: { id: item.jobId } });
+        await tx.job.deleteMany({
+          where: { id: item.jobId, userId: principal.userId },
+        });
       }
     });
 

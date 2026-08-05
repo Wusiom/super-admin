@@ -4,6 +4,12 @@ const captureRequest = {
   headers: { authorization: 'Bearer test-token' },
   apiTokenPrincipal: { userId: 99, scopes: ['capture:create'] },
 };
+const webPrincipal = {
+  userId: 99,
+  role: 'USER' as const,
+  sessionId: 1,
+  kind: 'web' as const,
+};
 
 jest.mock('./capture.processor', () => ({
   captureProcessor: jest.fn().mockResolvedValue({ itemId: 1 }),
@@ -125,8 +131,8 @@ describe('KnowledgeCaptureController capture', () => {
     const prisma = {
       job: {
         create: jest.fn(),
-        update: jest.fn(),
-        delete: jest.fn(),
+        updateMany: jest.fn(),
+        deleteMany: jest.fn(),
       },
     };
     const controller = new KnowledgeCaptureController(
@@ -153,7 +159,7 @@ describe('KnowledgeCaptureController capture', () => {
       job: {
         create: jest.fn(),
         update: jest.fn(),
-        delete: jest.fn(),
+        deleteMany: jest.fn(),
       },
     };
     const controller = new KnowledgeCaptureController(
@@ -210,25 +216,32 @@ describe('KnowledgeCaptureController updateItem', () => {
   let controller: KnowledgeCaptureController;
   let prisma: any;
   let jobEvents: any;
+  let ownedResources: any;
 
   beforeEach(() => {
     jobEvents = mockJobEvents();
+    ownedResources = { getKnowledgeItemOrThrow: jest.fn() };
     prisma = {
       $transaction: jest.fn(async (callback) => callback(prisma)),
       knowledgeItem: {
         findUnique: jest.fn(),
-        update: jest.fn(),
-        delete: jest.fn(),
+        updateMany: jest.fn(),
+        deleteMany: jest.fn(),
         findMany: jest.fn(),
         count: jest.fn(),
       },
       job: {
         create: jest.fn(),
         update: jest.fn(),
-        delete: jest.fn(),
+        deleteMany: jest.fn(),
       },
     };
-    controller = new KnowledgeCaptureController(prisma, {} as any, jobEvents);
+    controller = new KnowledgeCaptureController(
+      prisma,
+      {} as any,
+      jobEvents,
+      ownedResources,
+    );
   });
 
   it('updates contentMarkdown and returns updated item', async () => {
@@ -243,43 +256,53 @@ describe('KnowledgeCaptureController updateItem', () => {
       updatedAt: new Date(),
     };
     const updated = { ...existing, contentMarkdown: '# New content' };
-    prisma.knowledgeItem.findUnique.mockResolvedValue(existing);
-    prisma.knowledgeItem.update.mockResolvedValue(updated);
+    prisma.knowledgeItem.updateMany = jest.fn().mockResolvedValue({ count: 1 });
+    ownedResources.getKnowledgeItemOrThrow
+      .mockResolvedValueOnce(existing)
+      .mockResolvedValueOnce(updated);
 
-    const result = await controller.updateItem('1', {
-      contentMarkdown: '# New content',
-    });
+    const result = await controller.updateItem(
+      '1',
+      {
+        contentMarkdown: '# New content',
+      },
+      webPrincipal,
+    );
 
     expect(result).toEqual(updated);
     expect(result.contentMarkdown).toBe('# New content');
-    expect(prisma.knowledgeItem.update).toHaveBeenCalledWith({
-      where: { id: 1 },
+    expect(prisma.knowledgeItem.updateMany).toHaveBeenCalledWith({
+      where: { id: 1, userId: 99 },
       data: { contentMarkdown: '# New content' },
     });
   });
 
   it('returns 404 when item not found', async () => {
-    prisma.knowledgeItem.findUnique.mockResolvedValue(null);
+    ownedResources.getKnowledgeItemOrThrow.mockRejectedValue(
+      new Error('Knowledge item not found'),
+    );
 
     await expect(
-      controller.updateItem('999', { contentMarkdown: '# Test' }),
+      controller.updateItem('999', { contentMarkdown: '# Test' }, webPrincipal),
     ).rejects.toThrow('Knowledge item not found');
   });
 
   it('deletes the knowledge item and its capture job together, then broadcasts deletion and metrics', async () => {
-    prisma.knowledgeItem.findUnique.mockResolvedValue({
+    ownedResources.getKnowledgeItemOrThrow.mockResolvedValue({
       id: 1,
       title: 'Test',
       jobId: 77,
     });
 
-    await controller.deleteItem('1');
+    await controller.deleteItem('1', webPrincipal);
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(prisma.knowledgeItem.delete).toHaveBeenCalledWith({
-      where: { id: 1 },
+    expect(prisma.knowledgeItem.deleteMany).toHaveBeenCalledWith({
+      where: { id: 1, userId: 99 },
     });
-    expect(prisma.job.delete).toHaveBeenCalledWith({ where: { id: 77 } });
+    expect(prisma.job.deleteMany).toHaveBeenCalledWith({
+      where: { id: 77, userId: 99 },
+    });
     expect(jobEvents.emitJobDeleted).toHaveBeenCalledWith(77);
     expect(jobEvents.emitMetricsSnapshot).toHaveBeenCalledWith(
       'knowledge-capture',
@@ -287,18 +310,18 @@ describe('KnowledgeCaptureController updateItem', () => {
   });
 
   it('deletes the knowledge item even when no capture job is linked', async () => {
-    prisma.knowledgeItem.findUnique.mockResolvedValue({
+    ownedResources.getKnowledgeItemOrThrow.mockResolvedValue({
       id: 2,
       title: 'Manual',
       jobId: null,
     });
 
-    await controller.deleteItem('2');
+    await controller.deleteItem('2', webPrincipal);
 
-    expect(prisma.knowledgeItem.delete).toHaveBeenCalledWith({
-      where: { id: 2 },
+    expect(prisma.knowledgeItem.deleteMany).toHaveBeenCalledWith({
+      where: { id: 2, userId: 99 },
     });
-    expect(prisma.job.delete).not.toHaveBeenCalled();
+    expect(prisma.job.deleteMany).not.toHaveBeenCalled();
     expect(jobEvents.emitJobDeleted).not.toHaveBeenCalled();
     expect(jobEvents.emitMetricsSnapshot).toHaveBeenCalledWith(
       'knowledge-capture',
@@ -316,7 +339,7 @@ describe('KnowledgeCaptureController updateItem', () => {
     ]);
     prisma.knowledgeItem.count.mockResolvedValue(1);
 
-    const result = await controller.listItems('1', '20');
+    const result = await controller.listItems(webPrincipal, '1', '20');
 
     expect(prisma.knowledgeItem.findMany).toHaveBeenCalledWith(
       expect.objectContaining({

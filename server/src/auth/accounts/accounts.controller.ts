@@ -1,8 +1,10 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { AccountsService } from './accounts.service';
 import { EmailDto, RegisterDto, TokenDto } from './dto/register.dto';
+import { Public } from '../rbac/roles.decorator';
 
 @Controller('api/auth')
+@Public()
 export class AccountsController {
   constructor(private readonly accounts: AccountsService) {}
 

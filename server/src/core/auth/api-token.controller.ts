@@ -2,10 +2,11 @@ import {
   Controller,
   Logger,
   Post,
-  Req,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ApiTokenService } from './api-token.service';
+import { CurrentUser } from '../../auth/sessions/current-user.decorator';
+import type { AuthPrincipal } from '../../auth/sessions/auth-principal';
 
 @Controller('api/auth')
 export class ApiTokenController {
@@ -15,12 +16,12 @@ export class ApiTokenController {
 
   @Post('token')
   async getToken(
-    @Req() request: { user?: { id: number } },
+    @CurrentUser() principal: AuthPrincipal | undefined,
   ): Promise<{ token: string }> {
-    if (!request.user) {
+    if (!principal) {
       throw new UnauthorizedException('Authenticated user is required');
     }
-    const token = await this.apiTokenService.generateNewToken(request.user.id);
+    const token = await this.apiTokenService.generateNewToken(principal.userId);
     return { token };
   }
 }

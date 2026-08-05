@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { CoreModule } from './core/core.module';
@@ -13,6 +14,7 @@ import { SessionController } from './auth/sessions/session.controller';
 import { SessionService } from './auth/sessions/session.service';
 import { JwtAuthGuard } from './auth/sessions/jwt-auth.guard';
 import { PasswordResetService } from './auth/password/password-reset.service';
+import { RolesGuard } from './auth/rbac/roles.guard';
 
 @Module({
   imports: [
@@ -29,6 +31,9 @@ import { PasswordResetService } from './auth/password/password-reset.service';
     SessionService,
     PasswordResetService,
     JwtAuthGuard,
+    RolesGuard,
+    { provide: APP_GUARD, useExisting: JwtAuthGuard },
+    { provide: APP_GUARD, useExisting: RolesGuard },
   ],
   controllers: [AccountsController, SessionController],
 })

@@ -2,6 +2,9 @@ import { Controller, Get, Param, Post, Query, Sse } from '@nestjs/common';
 import { concat, from, Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { PrismaService } from '../prisma/prisma.service';
+import { CurrentUser } from '../auth/sessions/current-user.decorator';
+import type { AuthPrincipal } from '../auth/sessions/auth-principal';
+import { OwnedResourceService } from '../common/ownership/owned-resource.service';
 import { captureProcessor } from '../tools/knowledge-capture/capture.processor';
 import {
   deriveJobDiagnostics,
@@ -21,6 +24,7 @@ export class JobsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jobEvents: JobEventService,
+    private readonly ownedResources: OwnedResourceService,
   ) {}
 
   private parseOutputItemId(output: string | null): number | null {
@@ -33,7 +37,7 @@ export class JobsController {
     }
   }
 
-  private async enrichJobs(items: any[]) {
+  private async enrichJobs(items: any[], userId: number) {
     const itemIds = Array.from(
       new Set(
         items
@@ -46,7 +50,7 @@ export class JobsController {
     const knowledgeItems =
       itemIds.length > 0
         ? await this.prisma.knowledgeItem.findMany({
-            where: { id: { in: itemIds } },
+            where: { id: { in: itemIds }, userId },
             select: { id: true, title: true, capturedAt: true },
           })
         : [];
@@ -79,12 +83,13 @@ export class JobsController {
 
   @Get()
   async getJobs(
+    @CurrentUser() principal: AuthPrincipal,
     @Query('toolKey') toolKey?: string,
     @Query('status') status?: string,
     @Query('page') page = '1',
     @Query('pageSize') pageSize = '20',
   ) {
-    const where: any = {};
+    const where: any = { userId: principal.userId };
     if (toolKey) where.toolKey = toolKey;
     if (status) where.status = status;
 
@@ -99,7 +104,7 @@ export class JobsController {
     ]);
 
     return {
-      jobs: await this.enrichJobs(items),
+      jobs: await this.enrichJobs(items, principal.userId),
       total,
       page: Number(page),
       pageSize: Number(pageSize),
@@ -107,16 +112,23 @@ export class JobsController {
   }
 
   @Get('metrics')
-  async getMetrics(@Query('toolKey') toolKey?: string) {
+  async getMetrics(
+    @CurrentUser() principal: AuthPrincipal,
+    @Query('toolKey') toolKey?: string,
+  ) {
+    void principal;
     return this.jobEvents.getMetricsSnapshot(toolKey);
   }
 
   @Post(':id/retry')
-  async retryJob(@Param('id') id: string) {
-    const existingJob = await this.prisma.job.findUnique({
-      where: { id: Number(id) },
-    });
-    if (!existingJob) return { error: 'Job not found' };
+  async retryJob(
+    @Param('id') id: string,
+    @CurrentUser() principal: AuthPrincipal,
+  ) {
+    const existingJob = await this.ownedResources.getJobOrThrow(
+      Number(id),
+      principal.userId,
+    );
 
     let input: Record<string, any> = {};
     try {
@@ -128,7 +140,7 @@ export class JobsController {
     if (!input.url) return { error: 'Job input missing URL' };
 
     await this.prisma.job.update({
-      where: { id: Number(id) },
+      where: { id_userId: { id: Number(id), userId: principal.userId } },
       data: { status: 'running', error: null },
     });
     void this.jobEvents.emitEnrichedJob(Number(id));
@@ -191,9 +203,12 @@ export class JobsController {
   }
 
   @Sse('events')
-  sseEvents(@Query('toolKey') toolKey?: string): Observable<MessageEvent> {
+  sseEvents(
+    @CurrentUser() principal: AuthPrincipal,
+    @Query('toolKey') toolKey?: string,
+  ): Observable<MessageEvent> {
     return concat(
-      from(this.getInitialState(toolKey)).pipe(
+      from(this.getInitialState(principal.userId, toolKey)).pipe(
         map(
           (data) =>
             ({
@@ -214,8 +229,8 @@ export class JobsController {
     );
   }
 
-  private async getInitialState(toolKey?: string) {
-    const where: any = {};
+  private async getInitialState(userId: number, toolKey?: string) {
+    const where: any = { userId };
     if (toolKey) where.toolKey = toolKey;
 
     const [items, total, metrics] = await Promise.all([
@@ -229,7 +244,7 @@ export class JobsController {
     ]);
 
     return {
-      jobs: await this.enrichJobs(items),
+      jobs: await this.enrichJobs(items, userId),
       total,
       metrics,
     };

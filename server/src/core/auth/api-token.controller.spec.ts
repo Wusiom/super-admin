@@ -19,7 +19,7 @@ describe('ApiTokenController 创建语义', () => {
     const service = { generateNewToken: jest.fn() };
     const controller = new ApiTokenController(service as never);
 
-    await expect(controller.getToken({})).rejects.toBeInstanceOf(
+    await expect(controller.getToken(undefined)).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
     expect(service.generateNewToken).not.toHaveBeenCalled();
@@ -31,7 +31,14 @@ describe('ApiTokenController 创建语义', () => {
     };
     const controller = new ApiTokenController(service as never);
 
-    await expect(controller.getToken({ user: { id: 17 } })).resolves.toEqual({
+    await expect(
+      controller.getToken({
+        userId: 17,
+        role: 'USER',
+        sessionId: 1,
+        kind: 'web',
+      }),
+    ).resolves.toEqual({
       token: 'raw-token',
     });
     expect(service.generateNewToken).toHaveBeenCalledWith(17);
