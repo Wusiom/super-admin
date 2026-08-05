@@ -146,6 +146,9 @@ describe('rotating web sessions against PostgreSQL', () => {
 
   it('clears cookies on logout and only revokes the JWT principal on logout-all', async () => {
     const login = await loginThroughHttp(app);
+    const logoutTokenHash = createHash('sha256')
+      .update(refreshCookie(login).value)
+      .digest('hex');
     const logout = await request(app.getHttpServer())
       .post('/api/auth/logout')
       .set('Authorization', `Bearer ${login.body.accessToken}`)
@@ -153,8 +156,16 @@ describe('rotating web sessions against PostgreSQL', () => {
     expect(logout.headers['set-cookie'][0]).toMatch(
       /super_admin_refresh=; Path=\/api\/auth/i,
     );
+    const loggedOutSession = await prisma.webSession.findUnique({
+      where: { tokenHash: logoutTokenHash },
+    });
+    expect(loggedOutSession?.revokedAt).toBeInstanceOf(Date);
 
     const own = await loginThroughHttp(app);
+    const additionalOwnSession = await sessions.createSession({
+      id: userId,
+      role: 'USER',
+    });
     const otherSession = await sessions.createSession({
       id: otherUserId,
       role: 'USER',
@@ -167,6 +178,19 @@ describe('rotating web sessions against PostgreSQL', () => {
     expect(logoutAll.headers['set-cookie'][0]).toMatch(
       /super_admin_refresh=; Path=\/api\/auth/i,
     );
+    const ownSessions = await prisma.webSession.findMany({
+      where: {
+        tokenHash: {
+          in: [refreshCookie(own).value, additionalOwnSession.refreshToken].map(
+            (token) => createHash('sha256').update(token).digest('hex'),
+          ),
+        },
+      },
+    });
+    expect(ownSessions).toHaveLength(2);
+    expect(
+      ownSessions.every((session) => session.revokedAt instanceof Date),
+    ).toBe(true);
     const other = await prisma.webSession.findUnique({
       where: {
         tokenHash: createHash('sha256')
