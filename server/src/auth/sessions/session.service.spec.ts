@@ -1,4 +1,7 @@
-import { UnauthorizedException } from '@nestjs/common';
+import {
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { createHash } from 'crypto';
 import { SessionService } from './session.service';
@@ -220,7 +223,7 @@ describe('SessionService', () => {
     prisma.$transaction.mockRejectedValue({ code: 'P2034' });
 
     await expect(service.rotate('anything')).rejects.toBeInstanceOf(
-      UnauthorizedException,
+      ServiceUnavailableException,
     );
     expect(prisma.$transaction).toHaveBeenCalledTimes(3);
   });

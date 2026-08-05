@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { Prisma } from '@prisma/client';
@@ -113,10 +117,12 @@ export class SessionService {
       } catch (error: unknown) {
         if (!this.hasPrismaErrorCode(error, 'P2034')) throw error;
         if (attempt === 3)
-          throw new UnauthorizedException('Invalid refresh token');
+          throw new ServiceUnavailableException(
+            'Refresh temporarily unavailable',
+          );
       }
     }
-    throw new UnauthorizedException('Invalid refresh token');
+    throw new ServiceUnavailableException('Refresh temporarily unavailable');
   }
 
   async logout(principal: AuthPrincipal): Promise<void> {

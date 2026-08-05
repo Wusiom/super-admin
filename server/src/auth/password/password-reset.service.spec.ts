@@ -1,6 +1,15 @@
-import { UnauthorizedException } from '@nestjs/common';
+import {
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { argon2id, hash as hashPassword } from 'argon2';
 import { createHash } from 'crypto';
 import { PasswordResetService } from './password-reset.service';
+
+jest.mock('argon2', () => ({
+  argon2id: 2,
+  hash: jest.fn().mockResolvedValue('$argon2id$test'),
+}));
 
 describe('PasswordResetService', () => {
   const now = new Date();
@@ -15,6 +24,7 @@ describe('PasswordResetService', () => {
       $transaction: jest.fn(async (work: any) => work(prisma)),
     };
     service = new PasswordResetService(prisma);
+    (hashPassword as jest.Mock).mockClear();
   });
   it.each([
     ['expired', new Date(now.getTime() - 1)],
@@ -82,8 +92,36 @@ describe('PasswordResetService', () => {
     prisma.$transaction.mockReset().mockRejectedValue({ code: 'P2034' });
     await expect(
       service.resetPassword('raw-token', 'long-enough-password'),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
     expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not hash a password before rejecting an invalid reset token', async () => {
+    prisma.passwordResetToken.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.resetPassword('invalid-token', 'long-enough-password'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(hashPassword).not.toHaveBeenCalled();
+  });
+
+  it('hashes the password after a valid reset-token precheck', async () => {
+    prisma.passwordResetToken.findUnique.mockResolvedValue({
+      id: 9,
+      userId: 7,
+      expiresAt: new Date(Date.now() + 60_000),
+      consumedAt: null,
+      revokedAt: null,
+    });
+    prisma.passwordResetToken.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.resetPassword('valid-token', 'long-enough-password');
+
+    expect(hashPassword).toHaveBeenCalledWith(
+      'long-enough-password',
+      expect.objectContaining({ type: argon2id }),
+    );
   });
 
   it('allows only one concurrent reset redemption to change password or revoke sessions', async () => {

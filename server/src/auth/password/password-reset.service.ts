@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { argon2id, hash as hashPassword } from 'argon2';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -9,6 +13,19 @@ export class PasswordResetService {
 
   async resetPassword(rawToken: string, password: string): Promise<void> {
     const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const precheckResult: unknown =
+      await this.prisma.passwordResetToken.findUnique({
+        where: { tokenHash },
+      });
+    const precheck = this.toResetToken(precheckResult);
+    if (
+      !precheck ||
+      precheck.consumedAt ||
+      precheck.revokedAt ||
+      precheck.expiresAt <= new Date()
+    ) {
+      throw new UnauthorizedException('Invalid or expired reset token');
+    }
     const hashResult: unknown = await hashPassword(password, {
       type: argon2id,
     });
@@ -57,10 +74,14 @@ export class PasswordResetService {
       } catch (error: unknown) {
         if (!this.hasPrismaErrorCode(error, 'P2034')) throw error;
         if (attempt === 3)
-          throw new UnauthorizedException('Invalid or expired reset token');
+          throw new ServiceUnavailableException(
+            'Password reset temporarily unavailable',
+          );
       }
     }
-    throw new UnauthorizedException('Invalid or expired reset token');
+    throw new ServiceUnavailableException(
+      'Password reset temporarily unavailable',
+    );
   }
 
   private toResetToken(value: unknown): {
