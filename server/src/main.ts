@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { json } from 'express';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -42,6 +43,9 @@ async function bootstrap() {
 
   // Body size 上限 5MB，适配极端 localStorage payload
   app.use(json({ limit: '5mb' }));
+  // cookie-parser's CommonJS export has no resolved declaration in this package.
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+  app.use(cookieParser());
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   await app.listen(process.env.PORT ?? 3000);
