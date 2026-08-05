@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import type { Prisma } from '@prisma/client';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthPrincipal } from './auth-principal';
@@ -41,68 +42,81 @@ export class SessionService {
 
   async rotate(refreshToken: string): Promise<WebSessionTokens> {
     const tokenHash = this.hashToken(refreshToken);
-    const now = new Date();
-    return this.prisma.$transaction(
-      async (transaction) => {
-        const current = await transaction.webSession.findUnique({
-          where: { tokenHash },
-          include: { user: true },
-        });
-        if (!current) throw new UnauthorizedException('刷新令牌无效');
-        if (
-          current.revokedAt ||
-          current.rotatedAt ||
-          current.expiresAt <= now ||
-          current.user.status !== 'ACTIVE'
-        ) {
-          await transaction.webSession.updateMany({
-            where: {
-              userId: current.userId,
-              familyId: current.familyId,
-              revokedAt: null,
-            },
-            data: { revokedAt: now },
-          });
-          throw new UnauthorizedException('刷新令牌无效');
-        }
-        const consumed = await transaction.webSession.updateMany({
-          where: {
-            id: current.id,
-            revokedAt: null,
-            rotatedAt: null,
-            expiresAt: { gt: now },
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const now = new Date();
+      try {
+        const result = await this.prisma.$transaction(
+          async (transaction) => {
+            const current = await transaction.webSession.findUnique({
+              where: { tokenHash },
+              include: { user: true },
+            });
+            if (!current) return { kind: 'invalid' as const };
+            if (
+              current.revokedAt ||
+              current.rotatedAt ||
+              current.expiresAt <= now ||
+              current.user.status !== 'ACTIVE'
+            ) {
+              await this.revokeFamily(
+                transaction,
+                current.userId,
+                current.familyId,
+                now,
+              );
+              return { kind: 'reused' as const };
+            }
+            const consumed = await transaction.webSession.updateMany({
+              where: {
+                id: current.id,
+                revokedAt: null,
+                rotatedAt: null,
+                expiresAt: { gt: now },
+              },
+              data: { rotatedAt: now, lastUsedAt: now },
+            });
+            if (consumed.count !== 1) {
+              await this.revokeFamily(
+                transaction,
+                current.userId,
+                current.familyId,
+                now,
+              );
+              return { kind: 'reused' as const };
+            }
+            const nextRefresh = this.createToken();
+            const next = await transaction.webSession.create({
+              data: {
+                userId: current.userId,
+                tokenHash: this.hashToken(nextRefresh),
+                familyId: current.familyId,
+                expiresAt: this.expiresAt(),
+                userAgent: current.userAgent,
+                ipAddressHash: current.ipAddressHash,
+              },
+            });
+            return {
+              kind: 'success' as const,
+              tokens: {
+                accessToken: await this.createAccessToken(
+                  current.user,
+                  next.id,
+                ),
+                refreshToken: nextRefresh,
+              },
+            };
           },
-          data: { rotatedAt: now, lastUsedAt: now },
-        });
-        if (consumed.count !== 1) {
-          await transaction.webSession.updateMany({
-            where: {
-              userId: current.userId,
-              familyId: current.familyId,
-              revokedAt: null,
-            },
-            data: { revokedAt: now },
-          });
-          throw new UnauthorizedException('刷新令牌无效');
-        }
-        const nextRefresh = this.createToken();
-        const next = await transaction.webSession.create({
-          data: {
-            userId: current.userId,
-            tokenHash: this.hashToken(nextRefresh),
-            familyId: current.familyId,
-            expiresAt: this.expiresAt(),
-            userAgent: current.userAgent,
-            ipAddressHash: current.ipAddressHash,
-          },
-        });
-        return {
-          accessToken: await this.createAccessToken(current.user, next.id),
-          refreshToken: nextRefresh,
-        };
-      },
-      { isolationLevel: 'Serializable' },
-    );
+          { isolationLevel: 'Serializable' },
+        );
+        if (result.kind === 'success') return result.tokens;
+        throw new UnauthorizedException('Invalid refresh token');
+      } catch (error: unknown) {
+        if (!this.hasPrismaErrorCode(error, 'P2034')) throw error;
+        if (attempt === 3)
+          throw new UnauthorizedException('Invalid refresh token');
+      }
+    }
+    throw new UnauthorizedException('Invalid refresh token');
   }
 
   async logout(principal: AuthPrincipal): Promise<void> {
@@ -142,6 +156,27 @@ export class SessionService {
         secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
         expiresIn: ACCESS_TOKEN_TTL,
       },
+    );
+  }
+
+  private revokeFamily(
+    transaction: Prisma.TransactionClient,
+    userId: number,
+    familyId: string,
+    now: Date,
+  ): Promise<unknown> {
+    return transaction.webSession.updateMany({
+      where: { userId, familyId, revokedAt: null },
+      data: { revokedAt: now },
+    });
+  }
+
+  private hasPrismaErrorCode(error: unknown, code: string): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === code
     );
   }
 }

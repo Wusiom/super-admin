@@ -61,4 +61,55 @@ describe('PasswordResetService', () => {
       expect.objectContaining({ where: { userId: 7, revokedAt: null } }),
     );
   });
+
+  it('retries a serializable reset conflict once and rejects after persistent conflicts', async () => {
+    prisma.passwordResetToken.findUnique.mockResolvedValue({
+      id: 9,
+      userId: 7,
+      expiresAt: new Date(Date.now() + 60_000),
+      consumedAt: null,
+      revokedAt: null,
+    });
+    prisma.passwordResetToken.updateMany.mockResolvedValue({ count: 1 });
+    prisma.$transaction
+      .mockRejectedValueOnce({ code: 'P2034' })
+      .mockImplementation(async (work: any) => work(prisma));
+    await expect(
+      service.resetPassword('raw-token', 'long-enough-password'),
+    ).resolves.toBeUndefined();
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+
+    prisma.$transaction.mockReset().mockRejectedValue({ code: 'P2034' });
+    await expect(
+      service.resetPassword('raw-token', 'long-enough-password'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(3);
+  });
+
+  it('allows only one concurrent reset redemption to change password or revoke sessions', async () => {
+    prisma.passwordResetToken.findUnique.mockResolvedValue({
+      id: 9,
+      userId: 7,
+      expiresAt: new Date(Date.now() + 60_000),
+      consumedAt: null,
+      revokedAt: null,
+    });
+    prisma.passwordResetToken.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
+
+    const results = await Promise.allSettled([
+      service.resetPassword('raw-token', 'long-enough-password'),
+      service.resetPassword('raw-token', 'long-enough-password'),
+    ]);
+
+    expect(
+      results.filter((result) => result.status === 'fulfilled'),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === 'rejected'),
+    ).toHaveLength(1);
+    expect(prisma.user.update).toHaveBeenCalledTimes(1);
+    expect(prisma.webSession.updateMany).toHaveBeenCalledTimes(1);
+  });
 });

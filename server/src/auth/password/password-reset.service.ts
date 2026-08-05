@@ -8,43 +8,59 @@ export class PasswordResetService {
   constructor(private readonly prisma: PrismaService) {}
 
   async resetPassword(rawToken: string, password: string): Promise<void> {
-    const now = new Date();
     const tokenHash = createHash('sha256').update(rawToken).digest('hex');
-    const result: unknown = await this.prisma.passwordResetToken.findUnique({
-      where: { tokenHash },
-    });
-    const token = this.toResetToken(result);
-    if (!token || token.consumedAt || token.revokedAt || token.expiresAt <= now)
-      throw new UnauthorizedException('重置链接无效或已过期');
     const hashResult: unknown = await hashPassword(password, {
       type: argon2id,
     });
-    if (typeof hashResult !== 'string') throw new Error('密码哈希失败');
-    const passwordHash = hashResult;
-    await this.prisma.$transaction(
-      async (transaction) => {
-        const consumed = await transaction.passwordResetToken.updateMany({
-          where: {
-            id: token.id,
-            consumedAt: null,
-            revokedAt: null,
-            expiresAt: { gt: now },
+    if (typeof hashResult !== 'string') throw new Error('Password hash failed');
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const now = new Date();
+      try {
+        const redeemed = await this.prisma.$transaction(
+          async (transaction) => {
+            const tokenResult: unknown =
+              await transaction.passwordResetToken.findUnique({
+                where: { tokenHash },
+              });
+            const token = this.toResetToken(tokenResult);
+            if (
+              !token ||
+              token.consumedAt ||
+              token.revokedAt ||
+              token.expiresAt <= now
+            )
+              return false;
+            const consumed = await transaction.passwordResetToken.updateMany({
+              where: {
+                id: token.id,
+                consumedAt: null,
+                revokedAt: null,
+                expiresAt: { gt: now },
+              },
+              data: { consumedAt: now },
+            });
+            if (consumed.count !== 1) return false;
+            await transaction.user.update({
+              where: { id: token.userId },
+              data: { passwordHash: hashResult },
+            });
+            await transaction.webSession.updateMany({
+              where: { userId: token.userId, revokedAt: null },
+              data: { revokedAt: now },
+            });
+            return true;
           },
-          data: { consumedAt: now },
-        });
-        if (consumed.count !== 1)
-          throw new UnauthorizedException('重置链接无效或已过期');
-        await transaction.user.update({
-          where: { id: token.userId },
-          data: { passwordHash },
-        });
-        await transaction.webSession.updateMany({
-          where: { userId: token.userId, revokedAt: null },
-          data: { revokedAt: now },
-        });
-      },
-      { isolationLevel: 'Serializable' },
-    );
+          { isolationLevel: 'Serializable' },
+        );
+        if (redeemed) return;
+        throw new UnauthorizedException('Invalid or expired reset token');
+      } catch (error: unknown) {
+        if (!this.hasPrismaErrorCode(error, 'P2034')) throw error;
+        if (attempt === 3)
+          throw new UnauthorizedException('Invalid or expired reset token');
+      }
+    }
+    throw new UnauthorizedException('Invalid or expired reset token');
   }
 
   private toResetToken(value: unknown): {
@@ -77,5 +93,14 @@ export class PasswordResetService {
       consumedAt: value.consumedAt,
       revokedAt: value.revokedAt,
     };
+  }
+
+  private hasPrismaErrorCode(error: unknown, code: string): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === code
+    );
   }
 }
