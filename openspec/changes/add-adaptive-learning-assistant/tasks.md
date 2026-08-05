@@ -18,8 +18,8 @@
 
 ## 3. Authentication and Ownership
 
-- [ ] 3.1 Implement MailService abstraction with local diagnostic and SMTP transports
-- [ ] 3.2 Implement registration, Argon2id password hashing, email verification, resend throttling, and generic recovery responses
+- [x] 3.1 Implement MailService abstraction with local diagnostic and SMTP transports
+- [x] 3.2 Implement registration, Argon2id password hashing, email verification, resend throttling, and generic recovery responses
 - [ ] 3.3 Implement login, rotating hashed refresh-token families, access-token refresh, logout, and logout-all behavior
 - [ ] 3.4 Implement password-reset token issue, expiry, one-time redemption, and session revocation
 - [ ] 3.5 Implement trusted authentication context and `USER`/`ADMIN` authorization guards for Web and API routes

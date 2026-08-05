@@ -4,7 +4,9 @@
 
 **目标：** 以完整的邮箱身份体系、可撤销 Web 会话、服务端强制角色、所有者隔离和限定作用域的扩展令牌，替代宽松的全局令牌访问。
 
-**状态：** 🔄 进行中（任务 1：邮件抽象与账户注册）
+**状态：** 🔄 进行中（任务 1 已完成，任务 2 待开始）
+
+**任务记录：** [任务 1：邮件抽象与账户注册](../summaries/02-task-01-mail-accounts.md)
 
 **架构：** 仅由 Web JWT 或哈希 API 令牌守卫创建可信请求主体。Controller 将该主体传给按所有者隔离的 Service；Repository 的每个选择条件均包含 `userId`。刷新令牌轮换采用令牌族和重用检测，扩展令牌则是仅限 `capture:create` 的独立凭据。
 
@@ -19,11 +21,11 @@
 - 测试：`server/src/auth/accounts/accounts.service.spec.ts`
 - 修改：`server/src/app.module.ts`
 
-- [ ] 编写失败测试，覆盖规范化邮箱唯一性、Argon2id 哈希存储、未验证账户拒绝登录、限时哈希验证令牌、重发限流及一致的找回响应。
-- [ ] 运行 `pnpm --filter server test -- accounts.service.spec.ts --runInBand`；预期因 Provider 和方法缺失而失败。
-- [ ] 实现 `MailService.sendVerification`/`sendPasswordReset`、诊断与 SMTP Transport、账户注册、验证令牌兑换和重发频率边界，且不持久化原始令牌。
-- [ ] 重新运行聚焦测试；预期全部通过，快照和日志断言均不含密码或原始令牌。
-- [ ] 提交：`git commit -m "feat: add verified email accounts"`。
+- [x] 编写失败测试，覆盖规范化邮箱唯一性、Argon2id 哈希存储、未验证账户拒绝登录、限时哈希验证令牌、重发限流及一致的找回响应。
+- [x] 运行 `pnpm --filter server test -- accounts.service.spec.ts --runInBand`；预期因 Provider 和方法缺失而失败。
+- [x] 实现 `MailService.sendVerification`/`sendPasswordReset`、诊断与 SMTP Transport、账户注册、验证令牌兑换和重发频率边界，且不持久化原始令牌。
+- [x] 重新运行聚焦测试；预期全部通过，快照和日志断言均不含密码或原始令牌。
+- [x] 提交：`git commit -m "feat: add verified email accounts"`。
 
 ### 任务 2：轮换 Web 会话与密码重置
 
